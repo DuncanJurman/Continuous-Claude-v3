@@ -3,7 +3,7 @@
 // src/skill-activation-prompt.ts
 import { readFileSync as readFileSync2, existsSync as existsSync2 } from "fs";
 import { join } from "path";
-import { execSync } from "child_process";
+import { spawnSync } from "child_process";
 import { tmpdir } from "os";
 
 // src/shared/resource-reader.ts
@@ -152,9 +152,7 @@ function runPatternInference(prompt, projectDir) {
     if (!existsSync2(scriptPath)) {
       return null;
     }
-    const escapedPrompt = prompt.replace(/'/g, "'\\''");
-    const result = execSync(
-      `cd "${projectDir}" && uv run python -c "
+    const pythonCode = `
 import sys
 import json
 import importlib.util
@@ -162,25 +160,27 @@ import importlib.util
 # Direct import bypassing __init__.py
 spec = importlib.util.spec_from_file_location(
     'pattern_inference',
-    '${scriptPath}'
+    ${JSON.stringify(scriptPath)}
 )
 pattern_mod = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(pattern_mod)
 
-prompt = '''${escapedPrompt}'''
+prompt = ${JSON.stringify(prompt)}
 result = pattern_mod.infer_pattern(prompt)
 output = result.to_dict()
 output['work_breakdown_detailed'] = pattern_mod.generate_work_breakdown(result)
 print(json.dumps(output))
-"`,
-      {
-        encoding: "utf-8",
-        timeout: 5e3,
-        // 5 second timeout
-        stdio: ["pipe", "pipe", "pipe"]
-      }
-    );
-    return JSON.parse(result.trim());
+`;
+    const result = spawnSync("uv", ["run", "python", "-c", pythonCode], {
+      encoding: "utf-8",
+      timeout: 5e3,
+      cwd: projectDir,
+      stdio: ["pipe", "pipe", "pipe"]
+    });
+    if (result.status !== 0 || !result.stdout) {
+      return null;
+    }
+    return JSON.parse(result.stdout.trim());
   } catch (err) {
     return null;
   }
