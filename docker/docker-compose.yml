@@ -4,7 +4,7 @@ services:
     container_name: continuous-claude-postgres
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-claude}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-claude_dev}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-Entropy426!}
       POSTGRES_DB: ${POSTGRES_DB:-continuous_claude}
     ports:
       - "${POSTGRES_PORT:-5432}:5432"

@@ -516,7 +516,7 @@ async def run_setup_wizard() -> None:
         console.print("  [dim]Customize host/port for containers (podman, nerdctl) or remote postgres.[/dim]")
         if Confirm.ask("Configure database connection?", default=True):
             db_config = await prompt_database_config()
-            password = Prompt.ask("Database password", password=True, default="claude_dev")
+            password = Prompt.ask("Database password", password=True, default="Entropy426!")
             db_config["password"] = password
         else:
             db_config = {
@@ -524,7 +524,7 @@ async def run_setup_wizard() -> None:
                 "port": 5432,
                 "database": "continuous_claude",
                 "user": "claude",
-                "password": "claude_dev",
+                "password": "Entropy426!",
             }
         db_config["mode"] = "docker"
 
