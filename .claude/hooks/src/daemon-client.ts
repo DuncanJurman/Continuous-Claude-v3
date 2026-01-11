@@ -382,14 +382,20 @@ export function tryStartDaemon(projectDir: string): boolean {
     try {
       // We hold the lock - start the daemon
       const tldrPath = join(projectDir, 'opc', 'packages', 'tldr-code');
-      const result = spawnSync('uv', ['run', 'tldr', 'daemon', 'start', '--project', projectDir], {
-        timeout: 10000,
-        stdio: 'ignore',
-        cwd: tldrPath,
-      });
+      let started = false;
 
-      // If uv failed, try direct tldr (might work if installed globally with daemon support)
-      if (result.status !== 0) {
+      // Try local dev installation first (only if it exists)
+      if (existsSync(tldrPath)) {
+        const result = spawnSync('uv', ['run', 'tldr', 'daemon', 'start', '--project', projectDir], {
+          timeout: 10000,
+          stdio: 'ignore',
+          cwd: tldrPath,
+        });
+        started = result.status === 0;
+      }
+
+      // Fallback to global tldr if local didn't work
+      if (!started) {
         spawnSync('tldr', ['daemon', 'start', '--project', projectDir], {
           timeout: 5000,
           stdio: 'ignore',

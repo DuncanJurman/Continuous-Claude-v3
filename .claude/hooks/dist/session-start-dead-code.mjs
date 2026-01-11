@@ -160,12 +160,16 @@ function tryStartDaemon(projectDir) {
     }
     try {
       const tldrPath = join(projectDir, "opc", "packages", "tldr-code");
-      const result = spawnSync("uv", ["run", "tldr", "daemon", "start", "--project", projectDir], {
-        timeout: 1e4,
-        stdio: "ignore",
-        cwd: tldrPath
-      });
-      if (result.status !== 0) {
+      let started = false;
+      if (existsSync(tldrPath)) {
+        const result = spawnSync("uv", ["run", "tldr", "daemon", "start", "--project", projectDir], {
+          timeout: 1e4,
+          stdio: "ignore",
+          cwd: tldrPath
+        });
+        started = result.status === 0;
+      }
+      if (!started) {
         spawnSync("tldr", ["daemon", "start", "--project", projectDir], {
           timeout: 5e3,
           stdio: "ignore"
