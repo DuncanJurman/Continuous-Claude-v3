@@ -895,7 +895,7 @@ async def run_setup_wizard() -> None:
                             try:
                                 # Just load the model to trigger download (no indexing)
                                 download_result = subprocess.run(
-                                    ["python", "-c", f"from tldr.semantic import get_model; get_model('{model}')"],
+                                    [sys.executable, "-c", f"from tldr.semantic import get_model; get_model('{model}')"],
                                     capture_output=True,
                                     text=True,
                                     timeout=timeout,
