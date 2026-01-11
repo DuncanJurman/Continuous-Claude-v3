@@ -11,7 +11,7 @@
 
 import { existsSync, mkdirSync, writeFileSync, readFileSync } from 'fs';
 import { execSync } from 'child_process';
-import { queryDaemonSync, DaemonResponse } from './daemon-client.js';
+import { queryDaemonSync, DaemonResponse, trackHookActivitySync } from './daemon-client.js';
 
 interface GrepInput {
   pattern: string;
@@ -433,8 +433,15 @@ async function main() {
     callers: callers.slice(0, 20),  // Limit to 20 callers for token efficiency
   });
 
+  // Track hook activity (P8) - get project dir early for tracking
+  const projectDir = process.env.CLAUDE_PROJECT_DIR || '.';
+
   // LITERAL: Suggest TLDR search (finds + enriches in one call)
   if (queryType === 'literal') {
+    trackHookActivitySync('smart-search-router', projectDir, true, {
+      queries_routed: 1, literal_queries: 1,
+    });
+
     const reason = `🔍 Use TLDR search for code exploration (95% token savings):
 
 **Option 1 - TLDR Skill:**
@@ -463,6 +470,10 @@ TLDR finds location + provides call graph + docstrings in one call.`;
 
   // STRUCTURAL: Suggest AST-grep (most token-efficient for patterns)
   if (queryType === 'structural') {
+    trackHookActivitySync('smart-search-router', projectDir, true, {
+      queries_routed: 1, structural_queries: 1,
+    });
+
     const astPattern = getAstGrepSuggestion(pattern);
     const reason = `🎯 Structural query - Use AST-grep OR TLDR:
 
@@ -487,7 +498,10 @@ TLDR: finds + call graph + docstrings + complexity`;
   }
 
   // SEMANTIC: Actually run semantic search via daemon
-  const projectDir = process.env.CLAUDE_PROJECT_DIR || '.';
+  trackHookActivitySync('smart-search-router', projectDir, true, {
+    queries_routed: 1, semantic_queries: 1,
+  });
+
   const semanticResults = tldrSemantic(pattern, projectDir);
 
   let reason: string;

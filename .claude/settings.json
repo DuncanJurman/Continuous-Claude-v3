@@ -94,6 +94,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "bash $HOME/.opc-dev/.claude/hooks/persist-project-dir.sh"
+          },
+          {
+            "type": "command",
             "command": "bash $HOME/.claude/plugins/braintrust-tracing/hooks/session_start.sh"
           },
           {
@@ -127,8 +131,8 @@
           },
           {
             "type": "command",
-            "command": "node $HOME/.claude/hooks/dist/session-start-dead-code.mjs",
-            "timeout": 30
+            "command": "(node $HOME/.claude/hooks/dist/session-start-dead-code.mjs &>/dev/null &)",
+            "timeout": 2
           }
         ]
       }
