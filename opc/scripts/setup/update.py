@@ -244,6 +244,7 @@ def run_update() -> None:
         ("skills", claude_dir / "skills", {".md"}),
         ("rules", claude_dir / "rules", {".md"}),
         ("agents", claude_dir / "agents", {".md", ".yaml", ".yml"}),
+        ("commands", claude_dir / "commands", {".md"}),
     ]
 
     all_new = []
