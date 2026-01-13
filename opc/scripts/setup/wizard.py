@@ -807,11 +807,12 @@ async def run_setup_wizard() -> None:
 
         try:
             # Install from PyPI using uv tool (puts tldr CLI in PATH)
+            # Use 300s timeout - first install resolves many deps
             result = subprocess.run(
                 ["uv", "tool", "install", "llm-tldr"],
                 capture_output=True,
                 text=True,
-                timeout=120,
+                timeout=300,
             )
 
             if result.returncode == 0:
