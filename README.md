@@ -1,26 +1,32 @@
 # Continuous Claude
 
-> A persistent, learning, multi-agent development environment built on Claude Code
+> A persistent, learning, multi-agent development environment built on Claude Code with autonomous parallel execution via God-Ralph
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude-Code-orange.svg)](https://claude.ai/code)
 [![Skills](https://img.shields.io/badge/Skills-109-green.svg)](#skills-system)
-[![Agents](https://img.shields.io/badge/Agents-32-purple.svg)](#agents-system)
-[![Hooks](https://img.shields.io/badge/Hooks-30-blue.svg)](#hooks-system)
+[![Agents](https://img.shields.io/badge/Agents-36-purple.svg)](#agents-system)
+[![Hooks](https://img.shields.io/badge/Hooks-33-blue.svg)](#hooks-system)
+[![God-Ralph](https://img.shields.io/badge/God--Ralph-Parallel_Execution-red.svg)](#god-ralph-parallel-execution)
 
-**Continuous Claude** transforms Claude Code into a continuously learning system that maintains context across sessions, orchestrates specialized agents, and eliminates wasting tokens through intelligent code analysis.
+**Continuous Claude** transforms Claude Code into a continuously learning system that maintains context across sessions, orchestrates specialized agents, and executes work autonomously via parallel Ralph workers. The core workflow is: **Plan → Decompose → Execute**.
 
 ## Table of Contents
 
 - [Why Continuous Claude?](#why-continuous-claude)
 - [Design Principles](#design-principles)
+- [The Core Workflow: Plan → Decompose → Execute](#the-core-workflow-plan--decompose--execute)
+- [God-Ralph: Parallel Execution](#god-ralph-parallel-execution)
+  - [The Bead System](#the-bead-system)
+  - [Ralph Workers](#ralph-workers)
+  - [Verify-Then-Merge](#verify-then-merge)
 - [How to Talk to Claude](#how-to-talk-to-claude)
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
 - [Core Systems](#core-systems)
   - [Skills (109)](#skills-system)
-  - [Agents (32)](#agents-system)
-  - [Hooks (30)](#hooks-system)
+  - [Agents (36)](#agents-system)
+  - [Hooks (33)](#hooks-system)
   - [TLDR Code Analysis](#tldr-code-analysis)
   - [Memory System](#memory-system)
   - [Continuity System](#continuity-system)
@@ -81,6 +87,244 @@ The failure modes of complex systems are structurally invisible until they happe
 
 ---
 
+## The Core Workflow: Plan → Decompose → Execute
+
+Continuous Claude's primary workflow is autonomous parallel execution. Instead of working on tasks one-by-one, the system:
+
+1. **Plan** — Create an implementation plan with clear phases
+2. **Decompose** — Break the plan into atomic "beads" (self-contained work units)
+3. **Execute** — Parallel Ralph workers complete beads autonomously in isolated worktrees
+
+```
+User Request: "Build a user settings page"
+        │
+        ▼
+┌───────────────────────────────────────────────────────────────┐
+│  PHASE 1: PLANNING                                            │
+│  /plan or /build greenfield                                   │
+│  → architect agent creates implementation plan                │
+│  → premortem identifies risks (TIGERS + ELEPHANTS)            │
+│  → Output: thoughts/shared/plans/user-settings.md             │
+└───────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌───────────────────────────────────────────────────────────────┐
+│  PHASE 2: DECOMPOSITION                                       │
+│  /decompose                                                   │
+│  → bead-decomposer breaks plan into atomic beads              │
+│  → bead-validator ensures each bead is self-contained         │
+│  → Each bead has: ralph_spec, acceptance_criteria, impact_paths│
+│  → Output: beads tracked by bd CLI                            │
+└───────────────────────────────────────────────────────────────┘
+        │
+        ▼
+┌───────────────────────────────────────────────────────────────┐
+│  PHASE 3: EXECUTION                                           │
+│  /ralph start                                                 │
+│  → orchestrator groups beads by impact_paths overlap          │
+│  → non-overlapping beads execute in PARALLEL                  │
+│  → each ralph-worker runs in isolated git worktree            │
+│  → verify-then-merge: each bead verified before merge to main │
+│  → ralph-learner extracts insights to memory                  │
+└───────────────────────────────────────────────────────────────┘
+        │
+        ▼
+    All beads complete → Feature done, learnings stored
+```
+
+### Why This Workflow?
+
+| Benefit | How |
+|---------|-----|
+| **Parallel execution** | Non-conflicting beads run simultaneously in isolated worktrees |
+| **Safe merges** | Each bead verified BEFORE merging to main |
+| **Clear failures** | If a bead fails, you know exactly which one and why |
+| **Autonomous** | Ralph workers complete beads without human intervention |
+| **Learnings captured** | ralph-learner extracts insights from every completed bead |
+
+---
+
+## God-Ralph: Parallel Execution
+
+God-Ralph is the autonomous execution engine. It orchestrates parallel workers that complete beads in isolated git worktrees, verify them, then merge to main.
+
+### The Bead System
+
+A **bead** is the atomic unit of work. Each bead is self-contained with everything needed to complete it independently.
+
+```yaml
+---
+id: beads-001
+title: Add Settings API endpoint
+type: task
+status: open
+priority: 2
+---
+
+# Add Settings API endpoint
+
+Create GET/PUT /api/settings endpoint for user preferences.
+
+## Description
+Implement the settings API with validation and database persistence.
+
+## Key Files
+- src/api/settings.ts (new)
+- src/db/models/settings.ts (new)
+- tests/api/settings.test.ts (new)
+
+## ralph_spec
+acceptance_criteria:
+  - type: test
+    command: "npm test -- --grep 'settings API'"
+    severity: required
+  - type: lint
+    command: "npm run lint"
+    severity: required
+  - type: typecheck
+    command: "npm run typecheck"
+    severity: required
+completion_promise: "BEAD COMPLETE"
+max_iterations: 50
+impact_paths:
+  - src/api/
+  - src/db/models/
+  - tests/api/
+```
+
+#### Bead Fields
+
+| Field | Purpose |
+|-------|---------|
+| `ralph_spec.acceptance_criteria` | What must pass before merge |
+| `ralph_spec.completion_promise` | String ralph-worker outputs when done |
+| `ralph_spec.max_iterations` | Iteration limit (stop hook re-invokes) |
+| `ralph_spec.impact_paths` | Files this bead touches (for parallelism grouping) |
+
+#### Bead Lifecycle
+
+```
+open → in_progress → [completed|failed]
+        │
+        └── Ralph claims bead, works in worktree
+            │
+            ├── Success: verified → merged → closed
+            └── Failure: worktree preserved, bead stays open
+```
+
+### Ralph Workers
+
+Each bead is executed by an ephemeral **ralph-worker** in an isolated git worktree.
+
+```
+.worktrees/
+  ralph-beads-001/    ← Isolated worktree for bead 001
+    .git/             ← Linked to main repo
+    src/              ← Full codebase copy
+    ...
+  ralph-beads-002/    ← Another bead running in parallel
+```
+
+#### Ralph Worker Lifecycle
+
+1. **Spawn** — Orchestrator creates worktree, queues ralph-worker
+2. **Memory Injection** — `ensure-worktree.sh` hook queries memory ONCE at spawn
+3. **TDD Workflow** — Ralph follows kraken's TDD patterns:
+   - Write failing tests
+   - Implement minimum code
+   - Refactor
+4. **Iteration** — Stop hook re-invokes until `<promise>BEAD COMPLETE</promise>`
+5. **Exit** — Ralph dies after outputting completion promise
+
+#### Delegation
+
+Ralph workers delegate to specialized agents when needed:
+
+| Situation | Delegates To |
+|-----------|--------------|
+| Stuck on bug | debug-agent |
+| Needs codebase context | scout |
+| Complex TDD work | kraken |
+| Trivial 1-line fix | spark |
+| Discovered unrelated issue | bead-decomposer (creates new bead) |
+
+### Verify-Then-Merge
+
+Every bead is verified IN its worktree BEFORE merging to main.
+
+```
+Ralph Worker completes bead
+        │
+        ▼
+┌─────────────────────────────────┐
+│ verification-ralph              │
+│ Runs acceptance_criteria:       │
+│ ├── npm test (required)         │
+│ ├── npm run lint (required)     │
+│ └── npm run typecheck (required)│
+└─────────────────────────────────┘
+        │
+        ├── ALL PASS ────────────────────────────────────┐
+        │                                                 │
+        │   git checkout main                             │
+        │   git merge --ff-only ralph/<bead-id>           │
+        │   bd close <bead-id>                            │
+        │   cleanup-worktree.sh                           │
+        │                                                 ▼
+        │                                          Bead closed
+        │
+        └── ANY REQUIRED FAILS ──────────────────────────┐
+                                                          │
+            Worktree PRESERVED                            │
+            Bead stays OPEN                               │
+            Failure handoff created                       │
+                                                          ▼
+                                                   Debug & retry
+
+```
+
+**Key insight:** No integration branch. Each bead merges directly to current main after verification. This provides:
+- Clear failure attribution (specific bead)
+- Fresh base for each merge (current main)
+- Simpler state management
+
+### /ralph Commands
+
+| Command | Description |
+|---------|-------------|
+| `/ralph` | Show current status |
+| `/ralph start [--max-parallel N]` | Start orchestrator (dry-run first) |
+| `/ralph <bead-id>` | Run single Ralph on specific bead |
+| `/ralph stop` | Stop gracefully after current batch |
+| `/ralph resume` | Resume from existing state + worktrees |
+| `/ralph health` | Full health check with actionable fixes |
+| `/ralph gc` | Garbage collect orphaned worktrees |
+| `/ralph recover <bead-id>` | Recover specific bead from failed state |
+
+### God-Ralph Agents
+
+| Agent | Role |
+|-------|------|
+| **orchestrator** | Persistent coordinator managing parallel Ralphs |
+| **ralph-worker** | Ephemeral bead executor using TDD workflow |
+| **verification-ralph** | Runs acceptance criteria before merge |
+| **ralph-learner** | Extracts learnings to memory + CLAUDE.md |
+
+### State Management
+
+```
+.claude/state/god-ralph/
+├── orchestrator-state.json    ← Overall status, active/completed/failed beads
+├── completions.jsonl          ← Append-only log of all completions
+├── queue/                     ← Spawn queue files (atomic)
+│   └── <bead-id>.json
+├── sessions/                  ← Per-bead session state
+│   └── <bead-id>.json
+└── logs/                      ← Worker and hook logs
+```
+
+---
+
 ## How to Talk to Claude
 
 **You don't need to memorize slash commands.** Just describe what you want naturally.
@@ -123,10 +367,13 @@ ACTION: Use Skill tool BEFORE responding
 
 | What You Say | What Activates |
 |--------------|----------------|
+| "Build a user dashboard" | **Plan → Decompose → Ralph** (primary workflow) |
+| "Execute the beads" | `/ralph start` → parallel workers |
+| "Check ralph status" | `/ralph` status display |
 | "Fix the broken login" | `/fix` workflow → debug-agent, scout |
-| "Build a user dashboard" | `/build` workflow → plan-agent, kraken |
 | "I want to understand this codebase" | `/explore` + scout agent |
 | "What could go wrong with this plan?" | `/premortem` |
+| "Break this plan into beads" | `/decompose` → bead-decomposer |
 | "Help me figure out what I need" | `/discovery-interview` |
 | "Done for today" | `create_handoff` (critical) |
 | "Resume where we left off" | `resume_handoff` |
@@ -137,18 +384,21 @@ ACTION: Use Skill tool BEFORE responding
 
 | Benefit | How |
 |---------|-----|
+| **Autonomous Execution** | Ralph workers complete beads without intervention |
+| **Parallel Processing** | Non-conflicting beads execute simultaneously |
+| **Safe by Default** | Verify-then-merge ensures main stays clean |
 | **More Discoverable** | Don't need to know commands exist |
 | **Context-Aware** | System knows when you're 90% through context |
-| **Reduces Cognitive Load** | Describe intent naturally, get curated suggestions |
-| **Power User Friendly** | Still supports /fix, /build, etc. directly |
+| **Power User Friendly** | Still supports /fix, /build, /ralph, etc. directly |
 
-### Skill vs Workflow vs Agent
+### Skill vs Workflow vs Agent vs Ralph
 
 | Type | Purpose | Example |
 |------|---------|---------|
 | **Skill** | Single-purpose tool | `commit`, `tldr-code`, `qlty-check` |
 | **Workflow** | Multi-step process | `/fix` (sleuth → premortem → kraken → commit) |
 | **Agent** | Specialized sub-session | scout (exploration), oracle (research) |
+| **Ralph** | Autonomous bead executor | ralph-worker (TDD in isolated worktree) |
 
 [See detailed skill activation docs →](docs/skill-activation.md)
 
@@ -162,6 +412,7 @@ ACTION: Use Skill tool BEFORE responding
 - [uv](https://github.com/astral-sh/uv) package manager
 - Docker (for PostgreSQL)
 - Claude Code CLI
+- [bd CLI](https://github.com/...bd) (bead database for God-Ralph)
 
 ### Installation
 
@@ -181,13 +432,14 @@ uv run python -m scripts.setup.wizard
 | Step | What It Does |
 |------|--------------|
 | 1 | Backup existing .claude/ config (if present) |
-| 2 | Check prerequisites (Docker, Python, uv) |
+| 2 | Check prerequisites (Docker, Python, uv, bd) |
 | 3-5 | Database + API key configuration |
 | 6-7 | Start Docker stack, run migrations |
-| 8 | Install Claude Code integration (32 agents, 109 skills, 30 hooks) |
-| 9 | Math features (SymPy, Z3, Pint - optional) |
-| 10 | TLDR code analysis tool |
-| 11-12 | Diagnostics tools + Loogle (optional) |
+| 8 | Install Claude Code integration (36 agents, 109 skills, 33 hooks) |
+| 9 | God-Ralph state directories + hooks |
+| 10 | Math features (SymPy, Z3, Pint - optional) |
+| 11 | TLDR code analysis tool |
+| 12-13 | Diagnostics tools + Loogle (optional) |
 
 ### First Session
 
@@ -195,17 +447,26 @@ uv run python -m scripts.setup.wizard
 # Start Claude Code
 claude
 
-# Try a workflow
-> /workflow
+# The primary workflow: Plan → Decompose → Execute
+> /build greenfield "user settings page"
+# → Creates plan
+> /decompose
+# → Breaks plan into beads
+> /ralph start
+# → Parallel execution
 ```
 
 ### First Session Commands
 
 | Command | What it does |
 |---------|--------------|
+| `/build greenfield <feature>` | **Create implementation plan** |
+| `/decompose` | **Break plan into atomic beads** |
+| `/ralph start` | **Execute beads in parallel** |
+| `/ralph` | Check Ralph status |
+| `/ralph health` | Diagnose issues with actionable fixes |
 | `/workflow` | Goal-based routing (Research/Plan/Build/Fix) |
 | `/fix bug <description>` | Investigate and fix a bug |
-| `/build greenfield <feature>` | Build a new feature from scratch |
 | `/explore` | Understand the codebase |
 | `/premortem` | Risk analysis before implementation |
 
@@ -218,9 +479,20 @@ claude
 │                        CONTINUOUS CLAUDE                            │
 ├─────────────────────────────────────────────────────────────────────┤
 │                                                                     │
+│  ┌─────────────────────────────────────────────────────────────┐   │
+│  │                      GOD-RALPH LAYER                         │   │
+│  │   Plan → Decompose → Execute (Parallel Worktrees)            │   │
+│  │                                                               │   │
+│  │   orchestrator ─────► ralph-worker ─────► verification-ralph │   │
+│  │        │                    │                     │           │   │
+│  │        ▼                    ▼                     ▼           │   │
+│  │   [spawn queue]      [TDD workflow]      [verify-then-merge]  │   │
+│  └─────────────────────────────────────────────────────────────┘   │
+│         │                                                           │
+│         ▼                                                           │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │
 │  │   Skills    │    │   Agents    │    │    Hooks    │             │
-│  │   (109)     │───▶│    (32)     │◀───│    (30)     │             │
+│  │   (109)     │───▶│    (36)     │◀───│    (33)     │             │
 │  └─────────────┘    └─────────────┘    └─────────────┘             │
 │         │                  │                  │                     │
 │         ▼                  ▼                  ▼                     │
@@ -308,52 +580,98 @@ SessionStart                    Working                      SessionEnd
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                           META-SKILL WORKFLOWS                              │
+│                   PRIMARY WORKFLOW: PLAN → DECOMPOSE → RALPH                │
 └─────────────────────────────────────────────────────────────────────────────┘
 
-  /fix bug                              /build greenfield
-  ─────────                             ─────────────────
-  ┌──────────┐  ┌──────────┐            ┌──────────┐  ┌──────────┐
-  │  sleuth  │─▶│ premortem│            │discovery │─▶│plan-agent│
-  │(diagnose)│  │  (risk)  │            │(clarify) │  │ (design) │
-  └──────────┘  └────┬─────┘            └──────────┘  └────┬─────┘
-                     │                                      │
-                     ▼                                      ▼
-              ┌──────────┐                          ┌──────────┐
-              │  kraken  │                          │ validate │
-              │  (fix)   │                          │ (check)  │
-              └────┬─────┘                          └────┬─────┘
-                   │                                      │
-                   ▼                                      ▼
-              ┌──────────┐                          ┌──────────┐
-              │  arbiter │                          │  kraken  │
-              │ (test)   │                          │(implement│
-              └────┬─────┘                          └────┬─────┘
-                   │                                      │
-                   ▼                                      ▼
-              ┌──────────┐                          ┌──────────┐
-              │  commit  │                          │  commit  │
-              └──────────┘                          └──────────┘
+  /build greenfield → /decompose → /ralph start
+  ─────────────────────────────────────────────
+
+  ┌──────────┐  ┌──────────┐  ┌──────────┐
+  │discovery │─▶│plan-agent│─▶│ premortem│  Phase 1: PLAN
+  │(clarify) │  │ (design) │  │  (risk)  │
+  └──────────┘  └──────────┘  └────┬─────┘
+                                    │
+                                    ▼
+              ┌─────────────────────────────────┐
+              │ bead-decomposer + bead-validator│  Phase 2: DECOMPOSE
+              │ (break into atomic beads)       │
+              └─────────────┬───────────────────┘
+                            │
+        ┌───────────────────┼───────────────────┐
+        ▼                   ▼                   ▼
+  ┌──────────┐        ┌──────────┐        ┌──────────┐
+  │  ralph   │        │  ralph   │        │  ralph   │  Phase 3: PARALLEL
+  │ worker 1 │        │ worker 2 │        │ worker 3 │  EXECUTION
+  │(worktree)│        │(worktree)│        │(worktree)│
+  └────┬─────┘        └────┬─────┘        └────┬─────┘
+       │                   │                   │
+       ▼                   ▼                   ▼
+  ┌──────────┐        ┌──────────┐        ┌──────────┐
+  │ verify   │        │ verify   │        │ verify   │  VERIFY IN WORKTREE
+  │ -ralph   │        │ -ralph   │        │ -ralph   │
+  └────┬─────┘        └────┬─────┘        └────┬─────┘
+       │                   │                   │
+       └───────────────────┼───────────────────┘
+                           ▼
+                    ┌──────────┐
+                    │  merge   │  MERGE TO MAIN
+                    │ to main  │  (after verification)
+                    └────┬─────┘
+                         │
+                         ▼
+                    ┌──────────┐
+                    │  ralph   │  EXTRACT LEARNINGS
+                    │ -learner │
+                    └──────────┘
 
 
-  /tdd                                  /refactor
-  ────                                  ─────────
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           OTHER WORKFLOWS                                    │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+  /fix bug                              /tdd
+  ─────────                             ────
   ┌──────────┐  ┌──────────┐            ┌──────────┐  ┌──────────┐
-  │plan-agent│─▶│  arbiter │            │ phoenix  │─▶│  warden  │
-  │ (design) │  │(tests 🔴)│            │(analyze) │  │ (review) │
+  │  sleuth  │─▶│ premortem│            │plan-agent│─▶│  arbiter │
+  │(diagnose)│  │  (risk)  │            │ (design) │  │(tests 🔴)│
   └──────────┘  └────┬─────┘            └──────────┘  └────┬─────┘
                      │                                      │
                      ▼                                      ▼
               ┌──────────┐                          ┌──────────┐
               │  kraken  │                          │  kraken  │
-              │(code 🟢) │                          │(transform│
+              │  (fix)   │                          │(code 🟢) │
               └────┬─────┘                          └────┬─────┘
                    │                                      │
                    ▼                                      ▼
               ┌──────────┐                          ┌──────────┐
-              │  arbiter │                          │  judge   │
-              │(verify ✓)│                          │ (review) │
-              └──────────┘                          └──────────┘
+              │  arbiter │                          │  arbiter │
+              │ (test)   │                          │(verify ✓)│
+              └────┬─────┘                          └──────────┘
+                   │
+                   ▼
+              ┌──────────┐
+              │  commit  │
+              └──────────┘
+
+
+  /refactor
+  ─────────
+  ┌──────────┐  ┌──────────┐
+  │ phoenix  │─▶│  warden  │
+  │(analyze) │  │ (review) │
+  └──────────┘  └────┬─────┘
+                     │
+                     ▼
+              ┌──────────┐
+              │  kraken  │
+              │(transform│
+              └────┬─────┘
+                   │
+                   ▼
+              ┌──────────┐
+              │  judge   │
+              │ (review) │
+              └──────────┘
 ```
 
 ### Data Layer Architecture
@@ -521,11 +839,12 @@ The `/prove` skill enables machine-verified proofs without learning Lean syntax.
 
 ```
 What do I want to do?
+├── Building feature → /build greenfield → /decompose → /ralph start (PRIMARY)
 ├── Don't know → /workflow (guided router)
-├── Building → /build greenfield or brownfield
 ├── Fixing → /fix bug
 ├── Understanding → /explore
 ├── Planning → premortem first, then plan-agent
+├── Executing beads → /ralph start
 ├── Researching → oracle or perplexity-search
 ├── Reviewing → /review
 ├── Proving → /prove (Lean4 formal verification)
@@ -541,19 +860,27 @@ What do I want to do?
 
 Agents are specialized AI workers spawned via the Task tool. Located in `.claude/agents/`.
 
-#### Agent Categories (32 active)
+#### Agent Categories (36 active)
 
-> **Note:** There are likely too many agents—consolidation is a v4 goal. Use what fits your workflow.
+**God-Ralph (4)** — The Primary Execution Engine
+- **orchestrator**: Persistent coordinator managing parallel Ralph workers. Handles spawning, verification, merging, and recovery.
+- **ralph-worker**: Ephemeral bead executor using TDD workflow. Completes one bead in isolated worktree then exits.
+- **verification-ralph**: Runs acceptance criteria in worktree before merge. Reports pass/fail with severity levels.
+- **ralph-learner**: Extracts learnings from completed beads. Stores to memory + updates CLAUDE.md.
 
 **Orchestrators (2)**
 - **maestro**: Multi-agent coordination with patterns (Pipeline, Swarm, Jury)
-- **kraken**: TDD implementation agent with checkpoint/resume support
+- **kraken**: TDD implementation agent with checkpoint/resume support (ralph-worker extends this)
 
 **Planners (4)**
 - **architect**: Feature planning + API integration
 - **phoenix**: Refactoring + framework migration planning
 - **plan-agent**: Lightweight planning with research/MCP tools
 - **validate-agent**: Validate plans against best practices
+
+**Bead Management (2)**
+- **bead-decomposer**: Breaks plans into atomic beads with `ralph_spec`, `impact_paths`
+- **bead-validator**: Validates beads are self-contained with proper dependencies
 
 **Explorers (4)**
 - **scout**: Codebase exploration (use instead of Explore)
@@ -575,15 +902,16 @@ Agents are specialized AI workers spawned via the Task tool. Located in `.claude
 
 **Reviewers (6)** - critic, judge, surveyor, liaison, plan-reviewer, review-agent
 
-**Specialized (8)** - aegis, herald, scribe, chronicler, session-analyst, braintrust-analyst, memory-extractor, onboard
+**Specialized (6)** - aegis, herald, chronicler, session-analyst, braintrust-analyst, memory-extractor
 
 #### Common Workflows
 
 | Workflow | Agent Chain |
 |----------|-------------|
-| Feature | architect → plan-reviewer → kraken → review-agent → arbiter |
+| **Feature (Primary)** | architect → bead-decomposer → bead-validator → orchestrator → ralph-workers → verification-ralph → ralph-learner |
+| Feature (Legacy) | architect → plan-reviewer → kraken → review-agent → arbiter |
 | Refactoring | phoenix → plan-reviewer → kraken → judge → arbiter |
-| Bug Fix | sleuth → spark/kraken → arbiter → scribe |
+| Bug Fix | sleuth → spark/kraken → arbiter |
 
 [See detailed agent guide →](docs/agents/)
 
@@ -593,16 +921,17 @@ Agents are specialized AI workers spawned via the Task tool. Located in `.claude
 
 Hooks intercept Claude Code at lifecycle points. Located in `.claude/hooks/`.
 
-#### Hook Events (30 hooks total)
+#### Hook Events (33 hooks total)
 
 | Event | Key Hooks | Purpose |
 |-------|-----------|---------|
 | **SessionStart** | session-start-continuity, session-register, braintrust-tracing | Load context, register session |
-| **PreToolUse** | tldr-read-enforcer, smart-search-router, tldr-context-inject, file-claims | Token savings, search routing |
+| **PreToolUse** | tldr-read-enforcer, smart-search-router, tldr-context-inject, file-claims, **ensure-worktree** | Token savings, search routing, worktree creation |
 | **PostToolUse** | post-edit-diagnostics, handoff-index, post-edit-notify | Validation, indexing |
 | **PreCompact** | pre-compact-continuity | Auto-save before compaction |
 | **UserPromptSubmit** | skill-activation-prompt, memory-awareness | Skill hints, memory recall |
 | **SubagentStop** | subagent-stop-continuity | Save agent state |
+| **Stop** | **ralph-stop-hook** | Ralph iteration loop, completion detection |
 | **SessionEnd** | session-end-cleanup, session-outcome | Cleanup, extract learnings |
 
 #### Key Hooks
@@ -613,8 +942,11 @@ Hooks intercept Claude Code at lifecycle points. Located in `.claude/hooks/`.
 | **smart-search-router** | Routes grep to AST-grep when appropriate |
 | **post-edit-diagnostics** | Runs pyright/ruff after edits |
 | **memory-awareness** | Surfaces relevant learnings |
+| **ensure-worktree** | Creates isolated worktree for ralph-worker, injects memory ONCE at spawn |
+| **ralph-stop-hook** | Re-invokes ralph-worker until completion promise or max iterations |
+| **ralph-doc-only-check** | Restricts ralph-learner to documentation edits only |
 
-[See all 30 hooks →](docs/hooks/)
+[See all 33 hooks →](docs/hooks/)
 
 ---
 
@@ -879,6 +1211,61 @@ curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf 
 
 ## Workflows
 
+### Primary Workflow: /build → /decompose → /ralph
+
+The recommended workflow for any feature development:
+
+```bash
+# Step 1: Create implementation plan
+/build greenfield "user dashboard"
+
+# Step 2: Break plan into atomic beads
+/decompose
+
+# Step 3: Execute beads in parallel
+/ralph start
+```
+
+This is THE way to build features. Each step flows naturally into the next.
+
+---
+
+### /decompose - Break Plan into Beads
+
+```bash
+/decompose
+```
+
+Spawns `bead-decomposer` → `bead-validator` to break your plan into atomic beads.
+
+**Output:** Beads tracked by `bd` CLI, each with:
+- `ralph_spec.acceptance_criteria`
+- `ralph_spec.impact_paths`
+- `ralph_spec.max_iterations`
+
+---
+
+### /ralph - Parallel Bead Execution
+
+```bash
+/ralph start [--max-parallel N]
+```
+
+**Chain:** orchestrator → ralph-workers (parallel) → verification-ralph → merge → ralph-learner
+
+| Command | What it does |
+|---------|--------------|
+| `/ralph` | Show status |
+| `/ralph start` | Start orchestrator (dry-run first) |
+| `/ralph <bead-id>` | Run single Ralph on specific bead |
+| `/ralph stop` | Stop gracefully after current batch |
+| `/ralph resume` | Resume from existing state |
+| `/ralph health` | Full health check with fixes |
+| `/ralph gc` | Clean orphaned worktrees |
+| `/ralph recover <id>` | Recover failed bead |
+
+---
+
 ### /workflow - Goal-Based Router
 
 ```
@@ -887,8 +1274,9 @@ curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf 
 ? What's your goal?
   ○ Research - Understand codebase/docs
   ○ Plan - Design implementation approach
-  ○ Build - Implement features
+  ○ Build - Implement features (→ /decompose → /ralph)
   ○ Fix - Investigate and resolve issues
+  ○ Execute - Run beads with Ralph
 ```
 
 ### /fix - Bug Resolution
@@ -912,7 +1300,7 @@ curl https://raw.githubusercontent.com/leanprover/elan/master/elan-init.sh -sSf 
 /build greenfield "user dashboard"
 ```
 
-**Chain:** discovery → plan → validate → implement → commit → PR
+**Chain:** discovery → plan → validate → **(/decompose → /ralph start)** → commit → PR
 
 | Mode | What it does |
 |------|--------------|
@@ -969,11 +1357,13 @@ This will:
 
 | Component | Location |
 |-----------|----------|
-| Agents (32) | ~/.claude/agents/ |
+| Agents (36) | ~/.claude/agents/ |
 | Skills (109) | ~/.claude/skills/ |
-| Hooks (30) | ~/.claude/hooks/ |
+| Hooks (33) | ~/.claude/hooks/ |
+| Commands | ~/.claude/commands/ |
 | Rules | ~/.claude/rules/ |
 | Scripts | ~/.claude/scripts/ |
+| God-Ralph State | ~/.claude/state/god-ralph/ |
 | PostgreSQL | Docker container |
 
 ### For Brownfield Projects
@@ -1042,14 +1432,41 @@ Services without API keys still work:
 ```
 continuous-claude/
 ├── .claude/
-│   ├── agents/           # 32 specialized AI agents
-│   ├── hooks/            # 30 lifecycle hooks
+│   ├── agents/           # 36 specialized AI agents
+│   │   ├── orchestrator.md      # God-Ralph coordinator
+│   │   ├── ralph-worker.md      # Ephemeral bead executor
+│   │   ├── verification-ralph.md # Pre-merge verification
+│   │   ├── ralph-learner.md     # Learning extraction
+│   │   ├── bead-decomposer.md   # Plan → beads
+│   │   ├── bead-validator.md    # Bead validation
+│   │   └── ...                  # Other agents
+│   ├── hooks/            # 33 lifecycle hooks
 │   │   ├── src/          # TypeScript source
-│   │   └── dist/         # Compiled JavaScript
+│   │   ├── dist/         # Compiled JavaScript
+│   │   ├── ensure-worktree.sh   # Worktree + memory injection
+│   │   ├── ralph-stop-hook.sh   # Iteration loop
+│   │   └── ralph-doc-only-check.sh
+│   ├── commands/         # Slash commands
+│   │   ├── ralph.md      # /ralph command
+│   │   └── decompose.md  # /decompose command
+│   ├── state/            # Runtime state
+│   │   └── god-ralph/    # God-Ralph state
+│   │       ├── orchestrator-state.json
+│   │       ├── completions.jsonl
+│   │       ├── queue/
+│   │       ├── sessions/
+│   │       └── logs/
+│   ├── scripts/          # Utilities
+│   │   ├── bd-utils.sh   # bd CLI wrappers
+│   │   ├── cleanup-worktree.sh
+│   │   └── ensure-symlink.sh
 │   ├── skills/           # 109 modular capabilities
 │   ├── rules/            # System policies
-│   ├── scripts/          # Python utilities
 │   └── settings.json     # Hook configuration
+├── .worktrees/           # Git worktrees (gitignored)
+│   ├── ralph-beads-001/  # Isolated bead execution
+│   ├── ralph-beads-002/
+│   └── ...
 ├── opc/
 │   ├── packages/
 │   │   └── tldr-code/    # 5-layer code analysis
@@ -1062,6 +1479,7 @@ continuous-claude/
 │   ├── ledgers/          # Continuity ledgers (CONTINUITY_*.md)
 │   └── shared/
 │       ├── handoffs/     # Session handoffs (*.yaml)
+│       │   └── ralph-*/  # Ralph worker handoffs
 │       └── plans/        # Implementation plans
 └── docs/                 # Documentation
 ```

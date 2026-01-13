@@ -140,5 +140,4 @@ opc/LICENSE
 opc/.git/
 opc/.python-version
 
-Plan-Feedback.md
-Plans-saved/
+Plan-Feedback.md.worktrees/

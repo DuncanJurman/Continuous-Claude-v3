@@ -2,9 +2,18 @@
 
 ## Executive Summary
 
-Continuous Claude v3 is an **agentic AI development environment** built on top of Claude Code. It transforms a single AI assistant into a coordinated system of specialized agents, with automatic context management, semantic memory, and token-efficient code analysis. Think of it as "VS Code + GitHub Copilot, but the AI can delegate to specialist AIs, remember past sessions, and understand code at the AST level."
+Continuous Claude v3 is an **agentic AI development environment** built on top of Claude Code with **autonomous parallel execution via God-Ralph**. It transforms a single AI assistant into a coordinated system of specialized agents that execute work in parallel, with automatic context management, semantic memory, and token-efficient code analysis.
 
-The system has four main layers: **Skills** (what users can trigger), **Hooks** (automatic behaviors), **Agents** (specialized sub-assistants), and **Infrastructure** (persistence and analysis tools).
+**The Core Workflow: Plan → Decompose → Execute**
+
+Instead of working on tasks one-by-one, the system:
+1. **Plans** features with architect agents
+2. **Decomposes** plans into atomic "beads" (self-contained work units)
+3. **Executes** beads in parallel via Ralph workers in isolated git worktrees
+
+Think of it as "VS Code + GitHub Copilot, but the AI plans your feature, breaks it into tasks, and completes them all autonomously in parallel."
+
+The system has five main layers: **God-Ralph** (parallel execution engine), **Skills** (what users can trigger), **Hooks** (automatic behaviors), **Agents** (specialized sub-assistants), and **Infrastructure** (persistence and analysis tools).
 
 ---
 
@@ -13,13 +22,49 @@ The system has four main layers: **Skills** (what users can trigger), **Hooks** 
 ```
 +-----------------------------------------------------------------------------------+
 |                              USER INTERACTION                                      |
-|  "help me understand authentication" | "implement feature X" | "debug this bug"   |
+|  "build a user settings page" | "execute the beads" | "check ralph status"        |
 +-----------------------------------------------------------------------------------+
                                         |
                                         v
 +-----------------------------------------------------------------------------------+
 |                           SKILL ACTIVATION LAYER                                   |
 |  skill-rules.json -> keyword/intent matching -> skill suggestion/injection         |
+|  /build greenfield -> /decompose -> /ralph start                                   |
++-----------------------------------------------------------------------------------+
+                                        |
+                                        v
++-----------------------------------------------------------------------------------+
+|                         GOD-RALPH LAYER (Primary Execution Engine)                 |
+|                                                                                    |
+|  +------------------+     +------------------+     +------------------+            |
+|  |   PLANNING       |     |   DECOMPOSITION  |     |   EXECUTION      |            |
+|  | - architect      | --> | - bead-decomposer| --> | - orchestrator   |            |
+|  | - plan-agent     |     | - bead-validator |     | - ralph-workers  |            |
+|  | - premortem      |     |                  |     | - verify-ralph   |            |
+|  +------------------+     +------------------+     +------------------+            |
+|                                                            |                       |
+|  +--------------------------------------------------+      |                       |
+|  |                   WORKTREE ISOLATION              |      |                       |
+|  | .worktrees/                                       |<-----+                       |
+|  |   ralph-beads-001/ (parallel) <-- ralph-worker    |                             |
+|  |   ralph-beads-002/ (parallel) <-- ralph-worker    |                             |
+|  |   ralph-beads-003/ (parallel) <-- ralph-worker    |                             |
+|  +--------------------------------------------------+                              |
+|                           |                                                        |
+|                           v                                                        |
+|  +--------------------------------------------------+                              |
+|  |              VERIFY-THEN-MERGE                    |                             |
+|  | verification-ralph runs acceptance_criteria       |                             |
+|  | PASS -> merge to main, bd close                   |                             |
+|  | FAIL -> worktree preserved, bead stays open       |                             |
+|  +--------------------------------------------------+                              |
+|                           |                                                        |
+|                           v                                                        |
+|  +--------------------------------------------------+                              |
+|  |              ralph-learner                        |                             |
+|  | Extract insights -> store_learning.py -> memory   |                             |
+|  | Update CLAUDE.md with durable patterns            |                             |
+|  +--------------------------------------------------+                              |
 +-----------------------------------------------------------------------------------+
                                         |
                                         v
@@ -30,33 +75,33 @@ The system has four main layers: **Skills** (what users can trigger), **Hooks** 
 |  | SessionStart|    | UserPrompt    |    | PreToolUse   |    | PostToolUse    |   |
 |  | - Continuity|    | - Skill inject|    | - Search rtr |    | - Compiler     |   |
 |  | - Indexing  |    | - Braintrust  |    | - TLDR inject|    | - Handoff idx  |   |
-|  +-------------+    +---------------+    +--------------+    +----------------+   |
-|                                                                                    |
+|  +-------------+    +---------------+    | - ensure-    |    +----------------+   |
+|                                          |   worktree   |                         |
 |  +-------------+    +---------------+    +--------------+    +----------------+   |
 |  | SubagentSt  |    | SubagentStop  |    | Stop         |    | SessionEnd     |   |
-|  | - Register  |    | - Continuity  |    | - Coordinator|    | - Cleanup      |   |
+|  | - Register  |    | - Continuity  |    | - ralph-stop |    | - Cleanup      |   |
 |  +-------------+    +---------------+    +--------------+    +----------------+   |
 +-----------------------------------------------------------------------------------+
                                         |
                                         v
 +-----------------------------------------------------------------------------------+
-|                              AGENT LAYER (41 agents)                               |
+|                              AGENT LAYER (36 agents)                               |
 |                                                                                    |
-|  ORCHESTRATORS          IMPLEMENTERS         EXPLORERS          REVIEWERS         |
-|  +----------+           +----------+         +----------+       +----------+      |
-|  | maestro  |           | kraken   |         | scout    |       | critic   |      |
-|  | (opus)   |           | (opus)   |         | (sonnet) |       | (sonnet) |      |
-|  | multi-ag |           | TDD impl |         | codebase |       | code     |      |
-|  +----------+           +----------+         +----------+       +----------+      |
-|                                                                                    |
-|  PLANNERS              DEBUGGERS            VALIDATORS         SPECIALIZED        |
-|  +----------+          +----------+         +----------+       +----------+       |
-|  | architect|          | sleuth   |         | arbiter  |       | aegis    |       |
-|  | (opus)   |          | (opus)   |         | (opus)   |       | security |       |
-|  | design   |          | debug    |         | testing  |       +----------+       |
-|  +----------+          +----------+         +----------+       | phoenix  |       |
-|                                                                | refactor |       |
-|                                                                +----------+       |
+|  GOD-RALPH (4)                          ORCHESTRATORS (2)                         |
+|  +-------------+  +-------------+       +----------+  +----------+                |
+|  | orchestrator|  |ralph-worker |       | maestro  |  | kraken   |                |
+|  +-------------+  +-------------+       +----------+  +----------+                |
+|  +-------------+  +-------------+                                                  |
+|  | verify-ralph|  |ralph-learner|       BEAD MANAGEMENT (2)                       |
+|  +-------------+  +-------------+       +---------------+  +---------------+      |
+|                                         |bead-decomposer|  | bead-validator|      |
+|  PLANNERS (4)      DEBUGGERS (3)        +---------------+  +---------------+      |
+|  +----------+      +----------+                                                    |
+|  | architect|      | sleuth   |         EXPLORERS (4)      VALIDATORS (2)         |
+|  | phoenix  |      | debug-agt|         +----------+       +----------+           |
+|  | plan-agt |      | profiler |         | scout    |       | arbiter  |           |
+|  | validate |      +----------+         | oracle   |       | atlas    |           |
+|  +----------+                           +----------+       +----------+           |
 +-----------------------------------------------------------------------------------+
                                         |
                                         v
@@ -69,9 +114,9 @@ The system has four main layers: **Skills** (what users can trigger), **Hooks** 
 |  | - Call Graph      |  | - file_claims     |  |   - handoffs/     |               |
 |  | - CFG (control)   |  | - archival_memory |  |   - plans/        |               |
 |  | - DFG (data flow) |  | - handoffs        |  |   - ledgers/      |               |
-|  | - PDG (deps)      |  |                   |  | - .claude/cache/  |               |
-|  +-------------------+  +-------------------+  +-------------------+               |
-|                                                                                    |
+|  | - PDG (deps)      |  |                   |  | - .claude/state/  |               |
+|  +-------------------+  +-------------------+  |   god-ralph/      |               |
+|                                                +-------------------+               |
 |  +-------------------+  +-------------------+  +-------------------+               |
 |  | Symbol Index      |  | Artifact Index    |  | MCP Servers       |               |
 |  | /tmp/claude-      |  | (SQLite FTS5)     |  | - Firecrawl       |               |
@@ -88,12 +133,23 @@ The system has four main layers: **Skills** (what users can trigger), **Hooks** 
 
 Users activate capabilities through **natural language keywords**. No slash commands needed - the system detects intent.
 
+### God-Ralph: Primary Execution Workflow
+
+| Capability | Trigger Keywords | What It Does |
+|------------|-----------------|--------------|
+| **Build Feature** | "build", "implement feature", "create feature" | Primary workflow: Plan → Decompose → Execute |
+| **Decompose Plan** | "decompose", "break into beads", "create beads" | Breaks plan into atomic beads with `ralph_spec` |
+| **Execute Beads** | "start ralph", "execute beads", "run beads" | Parallel execution via ralph-workers in worktrees |
+| **Ralph Status** | "ralph status", "check ralph", "bead status" | Shows orchestrator state and progress |
+| **Ralph Health** | "ralph health", "diagnose ralph" | Full health check with actionable fixes |
+| **Ralph Recovery** | "recover bead", "ralph gc" | Recover failed beads, clean orphaned worktrees |
+
 ### Planning & Workflow
 
 | Capability | Trigger Keywords | What It Does |
 |------------|-----------------|--------------|
 | **Create Plan** | "create plan", "plan feature", "design" | Architect agent creates phased implementation plan |
-| **Implement Plan** | "implement plan", "execute plan", "follow plan" | Kraken agent executes plan with TDD |
+| **Implement Plan** | "implement plan", "execute plan", "follow plan" | Routes to God-Ralph: decompose → ralph-workers |
 | **Create Handoff** | "create handoff", "done for today", "wrap up" | Saves session state for future pickup |
 | **Resume Handoff** | "resume handoff", "continue work", "pick up where" | Restores context from previous session |
 | **Continuity Ledger** | "save state", "before compact", "low on context" | Creates checkpoint within session |
@@ -146,6 +202,22 @@ Users activate capabilities through **natural language keywords**. No slash comm
 
 Hooks fire automatically at specific lifecycle points. Users don't invoke them directly - they just work.
 
+### God-Ralph Hooks (Critical for Parallel Execution)
+
+| Hook | Triggers On | What It Does |
+|------|-------------|--------------|
+| `ensure-worktree` | Task (ralph-worker) | Creates isolated git worktree, injects memory context ONCE at spawn |
+| `ralph-stop-hook` | Stop (ralph-worker) | Re-invokes ralph-worker until completion promise or max iterations |
+| `ralph-doc-only-check` | Edit (ralph-learner) | Restricts ralph-learner to documentation edits only |
+
+**Hook Chain Order for ralph-worker spawn (CRITICAL):**
+
+| Order | Hook | Modifies | Must Preserve |
+|-------|------|----------|---------------|
+| 1 | tldr-context-inject | prompt (prepend) | - |
+| 2 | arch-context-inject | prompt (prepend) | tldr context |
+| 3 | ensure-worktree | prompt (prepend) + cwd | tldr + arch context |
+
 ### PreToolUse Hooks
 
 | Hook | Triggers On | What It Does |
@@ -155,7 +227,7 @@ Hooks fire automatically at specific lifecycle points. Users don't invoke them d
 | `smart-search-router` | Grep | Routes to AST-grep/LEANN/Grep based on query type |
 | `tldr-context-inject` | Task | Adds code context to subagent prompts |
 | `file-claims` | Edit | Tracks which session owns which files |
-| `pre-edit-context` | Edit | Injects context before edits |
+| `ensure-worktree` | Task (ralph-worker) | Creates worktree + memory injection |
 
 ### PostToolUse Hooks
 
@@ -176,21 +248,37 @@ Hooks fire automatically at specific lifecycle points. Users don't invoke them d
 | `skill-activation-prompt` | UserPromptSubmit | Suggests relevant skills |
 | `subagent-start` | SubagentStart | Registers subagent spawn |
 | `subagent-stop-continuity` | SubagentStop | Saves subagent state |
-| `stop-coordinator` | Stop | Handles graceful shutdown |
+| `ralph-stop-hook` | Stop | Ralph iteration loop, completion detection |
 | `session-end-cleanup` | SessionEnd | Cleanup and final state save |
 
 ---
 
 ## 3. Agent Layer
 
-41 specialized agents, each with a defined role, model preference, and tool access.
+36 specialized agents, each with a defined role, model preference, and tool access.
+
+### God-Ralph Agents (Primary Execution Engine)
+
+| Agent | Model | Purpose |
+|-------|-------|---------|
+| **orchestrator** | opus | Persistent coordinator managing parallel Ralph workers. Handles spawning, verification, merging, and recovery. |
+| **ralph-worker** | opus | Ephemeral bead executor. Completes ONE bead using TDD workflow in isolated worktree, then exits. |
+| **verification-ralph** | sonnet | Runs acceptance criteria in worktree BEFORE merge. Reports pass/fail with severity levels. |
+| **ralph-learner** | sonnet | Extracts learnings from completed beads. Stores to memory + updates CLAUDE.md. |
+
+### Bead Management Agents
+
+| Agent | Model | Purpose |
+|-------|-------|---------|
+| **bead-decomposer** | opus | Breaks plans into atomic beads with `ralph_spec`, `impact_paths`, acceptance criteria |
+| **bead-validator** | sonnet | Validates beads are self-contained with proper dependencies, fixes issues on the fly |
 
 ### Orchestration Agents
 
 | Agent | Model | Purpose |
 |-------|-------|---------|
 | **maestro** | opus | Multi-agent coordination, pattern selection |
-| **kraken** | opus | TDD implementation, checkpointing, resumable work |
+| **kraken** | opus | TDD implementation, checkpointing, resumable work (ralph-worker extends this) |
 
 ### Planning Agents
 
@@ -198,7 +286,8 @@ Hooks fire automatically at specific lifecycle points. Users don't invoke them d
 |-------|-------|---------|
 | **architect** | opus | Feature design, interface planning, integration design |
 | **phoenix** | opus | Refactoring plans, tech debt analysis |
-| **pioneer** | opus | Migration planning, framework upgrades |
+| **plan-agent** | opus | Lightweight planning with research/MCP tools |
+| **validate-agent** | sonnet | Validate plans against best practices |
 
 ### Exploration Agents
 
@@ -206,13 +295,14 @@ Hooks fire automatically at specific lifecycle points. Users don't invoke them d
 |-------|-------|---------|
 | **scout** | sonnet | Codebase exploration, pattern finding |
 | **oracle** | opus | External research (web, docs) |
-| **pathfinder** | sonnet | Navigation, file location |
+| **pathfinder** | sonnet | External repository analysis |
+| **research-codebase** | sonnet | Document codebase as-is |
 
 ### Implementation Agents
 
 | Agent | Model | Purpose |
 |-------|-------|---------|
-| **spark** | sonnet | Quick fixes, small changes |
+| **spark** | sonnet | Quick fixes, small changes (ralph-worker delegates here) |
 | **kraken** | opus | Full TDD implementation |
 
 ### Debugging Agents
@@ -220,7 +310,8 @@ Hooks fire automatically at specific lifecycle points. Users don't invoke them d
 | Agent | Model | Purpose |
 |-------|-------|---------|
 | **sleuth** | opus | Debug investigation, root cause analysis |
-| **profiler** | opus | Performance analysis |
+| **debug-agent** | opus | Issue investigation via logs/code search |
+| **profiler** | opus | Performance analysis, race conditions |
 
 ### Validation Agents
 
@@ -228,7 +319,6 @@ Hooks fire automatically at specific lifecycle points. Users don't invoke them d
 |-------|-------|---------|
 | **arbiter** | opus | Unit/integration testing |
 | **atlas** | opus | E2E testing |
-| **validator** | sonnet | Plan validation against precedent |
 
 ### Review Agents
 
@@ -236,8 +326,10 @@ Hooks fire automatically at specific lifecycle points. Users don't invoke them d
 |-------|-------|---------|
 | **critic** | sonnet | Code review |
 | **judge** | sonnet | Refactor review |
-| **warden** | sonnet | Security review |
 | **surveyor** | sonnet | Migration completeness |
+| **liaison** | sonnet | Integration/API quality review |
+| **plan-reviewer** | sonnet | Reviews implementation plans |
+| **review-agent** | sonnet | General code review |
 
 ### Specialized Agents
 
@@ -245,14 +337,20 @@ Hooks fire automatically at specific lifecycle points. Users don't invoke them d
 |-------|-------|---------|
 | **aegis** | opus | Security analysis, vulnerability scanning |
 | **herald** | sonnet | Release preparation, changelog |
-| **scribe** | sonnet | Documentation generation |
-| **liaison** | sonnet | Integration/API quality review |
+| **chronicler** | sonnet | Session analysis |
+| **memory-extractor** | sonnet | Extract learnings from sessions |
 
 ### Agent Output Location
 
 All agents write their output to:
 ```
 .claude/cache/agents/<agent-name>/latest-output.md
+```
+
+Ralph-specific state:
+```
+.claude/state/god-ralph/sessions/<bead-id>.json   # Per-bead session state
+.claude/state/god-ralph/completions.jsonl         # Append-only completion log
 ```
 
 ---
@@ -474,6 +572,78 @@ Claude calls Grep("validateToken")
 +-------------------+
 ```
 
+### God-Ralph Execution Flow (PRIMARY WORKFLOW)
+
+```
+User: "build user settings page"
+         |
+         v
++-------------------+
+| /build greenfield |  or /build brownfield
++-------------------+
+         |
+         v
++-------------------+
+| architect agent   |  creates implementation plan
++-------------------+    writes to thoughts/shared/plans/
+         |
+         v
++-------------------+
+| /decompose        |  breaks plan into atomic beads
++-------------------+
+         |
+         v
++-------------------+
+| bead-decomposer   |  creates beads with ralph_spec
++-------------------+
+         |
+         v
++-------------------+
+| bead-validator    |  ensures beads are self-contained
++-------------------+    writes to .claude/state/god-ralph/queue/
+         |
+         v
++-------------------+
+| /ralph start      |  begins parallel execution
++-------------------+
+         |
+    +----+----+
+    |    |    |
+    v    v    v
++-------+ +-------+ +-------+
+|Ralph-1| |Ralph-2| |Ralph-3|  parallel workers in worktrees
++-------+ +-------+ +-------+  .worktrees/ralph-<bead-id>/
+    |         |         |
+    v         v         v
++-------+ +-------+ +-------+
+|verify | |verify | |verify |  verification-ralph checks each
++-------+ +-------+ +-------+
+    |         |         |
+    v         v         v
++-------------------+
+| merge to main     |  verify-then-merge (no integration branch)
++-------------------+
+         |
+         v
++-------------------+
+| ralph-learner     |  extracts patterns for future sessions
++-------------------+    stores in archival_memory
+```
+
+**Bead Structure:**
+```yaml
+id: "settings-ui-001"
+ralph_spec:
+  acceptance_criteria:
+    - Settings page renders with user preferences
+    - Form validation works for all fields
+  impact_paths:
+    - src/components/Settings/
+    - src/hooks/useSettings.ts
+  completion_promise: "Settings page functional with validation"
+  max_iterations: 3
+```
+
 ---
 
 ## 7. Key Files Reference
@@ -504,6 +674,23 @@ Claude calls Grep("validateToken")
 | `.claude/agents/maestro.md` | Multi-agent orchestrator |
 | `.claude/agents/architect.md` | Feature planning agent |
 | `.claude/agents/scout.md` | Codebase exploration |
+| `.claude/agents/orchestrator.md` | God-Ralph job queue manager |
+| `.claude/agents/ralph-worker.md` | Parallel bead executor |
+| `.claude/agents/verification-ralph.md` | Bead verification agent |
+| `.claude/agents/ralph-learner.md` | Pattern extraction from completions |
+| `.claude/agents/bead-decomposer.md` | Plan to bead decomposition |
+| `.claude/agents/bead-validator.md` | Bead self-containment validation |
+
+### God-Ralph State
+
+| Path | Purpose |
+|------|---------|
+| `.claude/state/god-ralph/queue/` | Pending beads (YAML files) |
+| `.claude/state/god-ralph/sessions/` | Active worker sessions |
+| `.claude/state/god-ralph/logs/` | Worker execution logs |
+| `.claude/state/god-ralph/orchestrator-state.json` | Queue state and assignments |
+| `.claude/state/god-ralph/completions.jsonl` | Completed bead records |
+| `.worktrees/ralph-<bead-id>/` | Isolated git worktrees per worker |
 
 ### Core Libraries
 
@@ -519,10 +706,16 @@ Claude calls Grep("validateToken")
 
 ### For Users
 
-1. **Ask naturally** - "help me understand the auth system" triggers appropriate skills/agents
-2. **Create plans first** - "create a plan for feature X" before implementing
-3. **Use handoffs** - "create handoff" when stopping, "resume handoff" when returning
-4. **Trust the routing** - the system picks the right tool (TLDR vs Grep vs AST-grep)
+**Primary Workflow (God-Ralph):**
+1. **Plan** - "create a plan for feature X" → architect creates implementation plan
+2. **Decompose** - `/decompose` → breaks plan into atomic beads
+3. **Execute** - `/ralph start` → parallel workers complete beads
+4. **Monitor** - `/ralph status` → track progress across workers
+
+**Alternative Approaches:**
+- **Ask naturally** - "help me understand the auth system" triggers appropriate skills/agents
+- **Use handoffs** - "create handoff" when stopping, "resume handoff" when returning
+- **Trust the routing** - the system picks the right tool (TLDR vs Grep vs AST-grep)
 
 ### For Developers
 
@@ -530,14 +723,18 @@ Claude calls Grep("validateToken")
 2. **Register triggers** in `.claude/skills/skill-rules.json`
 3. **Add hooks** in `.claude/hooks/src/*.ts`, register in `.claude/settings.json`
 4. **Add agents** in `.claude/agents/<agent>.md`
+5. **Create beads** in `.claude/state/god-ralph/queue/` with proper `ralph_spec`
 
 ### Key Invariants
 
+- **Plan before execute** - God-Ralph requires beads with clear acceptance criteria
+- **Verify before merge** - each bead verified in worktree before merging to main
 - **Agents write to files, not stdout** - all agent output goes to `.claude/cache/agents/`
 - **Hooks are fast** - timeouts are 5-60 seconds
 - **Memory is semantic** - use embeddings for recall, not exact match
-- **TDD is enforced** - implementation agents write tests first
+- **TDD is enforced** - implementation agents (including ralph-workers) write tests first
 - **Context is precious** - TLDR saves 85% tokens
+- **Worktrees isolate** - parallel workers never conflict via git worktree isolation
 
 ---
 
@@ -545,6 +742,12 @@ Claude calls Grep("validateToken")
 
 | Term | Meaning |
 |------|---------|
+| **Bead** | Atomic work unit with acceptance criteria, impact paths, and completion promise |
+| **God-Ralph** | Autonomous parallel execution engine for beads |
+| **Ralph Worker** | Agent executing a single bead in an isolated worktree |
+| **Orchestrator** | Job queue manager assigning beads to workers |
+| **Verify-Then-Merge** | Each bead verified in worktree before merging to main |
+| **Worktree** | Isolated git working directory for parallel execution |
 | **Skill** | A capability triggered by keywords in user input |
 | **Hook** | Automatic behavior at lifecycle points (PreToolUse, etc.) |
 | **Agent** | Specialized sub-assistant spawned via Task tool |
@@ -554,6 +757,8 @@ Claude calls Grep("validateToken")
 | **Artifact Index** | Full-text searchable index of past work |
 | **Temporal Fact** | Fact that evolves over turns (e.g., "current goal") |
 | **Pattern** | Multi-agent coordination (pipeline, jury, debate, gencritic) |
+| **Ralph Spec** | YAML specification inside a bead defining acceptance criteria |
+| **Completion Promise** | Single-sentence description of what "done" means for a bead |
 
 ---
 
