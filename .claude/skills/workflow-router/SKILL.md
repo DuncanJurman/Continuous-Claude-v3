@@ -29,7 +29,8 @@ questions=[{
     {"label": "Research", "description": "Understand/explore something - investigate unfamiliar code, libraries, or concepts"},
     {"label": "Plan", "description": "Design/architect a solution - create implementation plans, break down complex problems"},
     {"label": "Build", "description": "Implement/code something - write new features, create components, implement from a plan"},
-    {"label": "Fix", "description": "Debug/fix an issue - investigate and resolve bugs, debug failing tests"}
+    {"label": "Fix", "description": "Debug/fix an issue - investigate and resolve bugs, debug failing tests"},
+    {"label": "Execute Beads", "description": "Run beads in parallel - execute work items with Ralph workers"}
   ],
   "multiSelect": false
 }]
@@ -80,6 +81,7 @@ Route to the appropriate specialist based on goal:
 | **Plan** | plan-agent | Oracle | Create implementation plans with phased approach |
 | **Build** | kraken | Kraken | Implementation agent - handles coding tasks via Task tool |
 | **Fix** | debug-agent | Sentinel | Investigate issues using codebase exploration and logs |
+| **Execute Beads** | orchestrator | Ralph | Parallel bead execution with Ralph workers |
 
 **Fix workflow special case:** For Fix goals, first spawn debug-agent (Sentinel) to investigate. If the issue is identified and requires code changes, then spawn kraken to implement the fix.
 
@@ -188,6 +190,26 @@ Task(
   """
 )
 ```
+
+### Execute Beads (Ralph)
+```
+Task(
+  subagent_type="orchestrator",
+  prompt="""
+  Execute beads from: [bead source or backlog]
+
+  Mode: [parallel/sequential]
+  Max workers: [number of parallel Ralph workers]
+  Output: Progress updates and completion status
+  """
+)
+```
+
+**Execute Beads workflow:** For bead execution, spawn the orchestrator which manages Ralph workers. The orchestrator handles:
+- Bead selection and prioritization
+- Parallel worker spawning
+- Progress tracking and completion verification
+- Worktree management for isolated execution
 
 ## Tips
 
