@@ -55,6 +55,11 @@
             "type": "command",
             "command": "node $HOME/.claude/hooks/dist/arch-context-inject.mjs",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ensure-worktree.sh",
+            "timeout": 45
           }
         ]
       },
