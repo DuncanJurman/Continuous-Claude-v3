@@ -81,7 +81,12 @@ Groups:
 
 For each bead in parallel group, spawn an isolated Ralph worker:
 
-**Step 1: Write queue file (BEFORE Task call)**
+**Step 1: Claim bead (BEFORE Task call)**
+```bash
+bd_claim <bead-id>
+```
+
+**Step 2: Write queue file (BEFORE Task call)**
 ```bash
 mkdir -p .claude/state/god-ralph/queue
 
@@ -95,7 +100,7 @@ cat > .claude/state/god-ralph/queue/<bead-id>.json << 'EOF'
 EOF
 ```
 
-**Step 2: Spawn via Task**
+**Step 3: Spawn via Task**
 ```
 Task(
   subagent_type="ralph-worker",
@@ -123,7 +128,7 @@ Task(
 )
 ```
 
-**Step 3: Verify spawn succeeded**
+**Step 4: Verify spawn succeeded**
 ```bash
 # Check worktree was created
 ls -la .worktrees/ralph-<bead-id>/
@@ -229,8 +234,16 @@ After successful merge:
 # 1. Clean up worktree, branch, and session state
 .claude/scripts/cleanup-worktree.sh <bead-id>
 
-# 2. Log completion
-echo "$(date -Iseconds) MERGED <bead-id>" >> .claude/state/god-ralph/completions.jsonl
+# 2. Log completion (JSONL)
+ITERATIONS=$(jq -r '.iteration // 0' .claude/state/god-ralph/sessions/<bead-id>.json 2>/dev/null || echo 0)
+jq -n \
+  --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+  --arg bid "<bead-id>" \
+  --arg st "merged" \
+  --argjson it "$ITERATIONS" \
+  --arg r "verify_then_merge" \
+  '{timestamp: $ts, bead_id: $bid, status: $st, iterations: $it, reason: $r}' \
+  >> .claude/state/god-ralph/completions.jsonl
 ```
 
 **Repeat**: Return to Phase 1 until no ready beads remain.
@@ -415,10 +428,10 @@ git branch -D ralph/<bead-id>
 ```
 
 ### Merge Conflict
-Route to bead-farmer to create fix-bead (see Phase 5).
+Route to bead-decomposer to create fix-bead (see Phase 5).
 
 ### Verification Failure
-Route to bead-farmer to create fix-bead (see Phase 5).
+Route to bead-decomposer to create fix-bead (see Phase 5).
 
 ### Orchestrator Crash
 On restart, run `recover` command to identify stale state and resume.

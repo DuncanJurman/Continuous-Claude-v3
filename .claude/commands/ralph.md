@@ -76,10 +76,11 @@ Execute a specific bead manually:
 ```
 
 This:
-1. Creates worktree at `.worktrees/ralph-auth-001/`
-2. Checks out branch `ralph/auth-001`
-3. Spawns ralph-worker agent
-4. Monitors until completion or failure
+1. Claims the bead (`bd update --status=in_progress`)
+2. Creates worktree at `.worktrees/ralph-auth-001/`
+3. Checks out branch `ralph/auth-001`
+4. Spawns ralph-worker agent
+5. Monitors until completion or failure
 
 ### Stop Gracefully (`/ralph stop`)
 
@@ -189,6 +190,9 @@ fi
 
 # 3. For each ready bead (up to parallelism limit):
 for BEAD_ID in $READY_BEADS; do
+  # Claim bead so other orchestrators don't pick it up
+  bd update "$BEAD_ID" --status=in_progress
+
   # Write queue file for ensure-worktree hook
   mkdir -p .claude/state/god-ralph/queue
   cat > ".claude/state/god-ralph/queue/${BEAD_ID}.json" << EOF

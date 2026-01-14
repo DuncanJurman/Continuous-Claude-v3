@@ -17,7 +17,7 @@
 set -euo pipefail
 
 # === JSONL LOGGING ===
-COMPLETIONS_FILE=".claude/state/god-ralph/completions.jsonl"
+COMPLETIONS_FILE=""
 
 log_completion() {
   local bead_id="$1" status="$2" iterations="$3" reason="${4:-}"
@@ -76,6 +76,24 @@ if [ ! -f "$SESSION_FILE" ]; then
     exit 0  # Allow exit on error
 fi
 
+# === RESOLVE COMPLETIONS LOG PATH (MAIN REPO) ===
+SESSIONS_DIR=$(dirname "$SESSION_FILE")
+SESSIONS_TARGET="$SESSIONS_DIR"
+
+if [ -L "$SESSIONS_DIR" ]; then
+    LINK_TARGET=$(readlink "$SESSIONS_DIR" 2>/dev/null || echo "")
+    if [ -n "$LINK_TARGET" ]; then
+        SESSIONS_TARGET="$LINK_TARGET"
+    fi
+fi
+
+MAIN_STATE_DIR=$(cd "$SESSIONS_TARGET/.." 2>/dev/null && pwd || echo "")
+if [ -n "$MAIN_STATE_DIR" ]; then
+    COMPLETIONS_FILE="$MAIN_STATE_DIR/completions.jsonl"
+else
+    COMPLETIONS_FILE=".claude/state/god-ralph/completions.jsonl"
+fi
+
 # === READ SESSION STATE ===
 ITERATION=$(jq -r '.iteration // 0' "$SESSION_FILE")
 MAX_ITERATIONS=$(jq -r '.max_iterations // 10' "$SESSION_FILE")
@@ -115,7 +133,15 @@ if [ -n "$COMPLETION_PROMISE" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIP
     # Extract LAST assistant message from JSONL transcript using jq
     # Take last 100 lines to avoid memory issues on large transcripts
     LAST_MESSAGE=$(tail -100 "$TRANSCRIPT_PATH" 2>/dev/null | \
-        jq -rs '[.[] | select(.role == "assistant")] | last | .content // empty' 2>/dev/null || echo "")
+        jq -rs '
+          [ .[]
+            | select((.role // "") == "assistant" or (.type // "") == "assistant")
+            | .content
+            | if type == "string" then .
+              elif type == "array" then (map(.text? // "") | join(""))
+              else "" end
+          ] | last // empty
+        ' 2>/dev/null || echo "")
 
     if [ -n "$LAST_MESSAGE" ]; then
         # Look for <promise>COMPLETION_PROMISE</promise> tags in the last message

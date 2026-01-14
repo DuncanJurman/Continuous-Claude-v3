@@ -4,8 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Claude Code](https://img.shields.io/badge/Claude-Code-orange.svg)](https://claude.ai/code)
-[![Skills](https://img.shields.io/badge/Skills-109-green.svg)](#skills-system)
-[![Agents](https://img.shields.io/badge/Agents-36-purple.svg)](#agents-system)
+[![Skills](https://img.shields.io/badge/Skills-155-green.svg)](#skills-system)
+[![Agents](https://img.shields.io/badge/Agents-38-purple.svg)](#agents-system)
 [![Hooks](https://img.shields.io/badge/Hooks-33-blue.svg)](#hooks-system)
 [![God-Ralph](https://img.shields.io/badge/God--Ralph-Parallel_Execution-red.svg)](#god-ralph-parallel-execution)
 
@@ -24,8 +24,8 @@
 - [Quick Start](#quick-start)
 - [Architecture](#architecture)
 - [Core Systems](#core-systems)
-  - [Skills (109)](#skills-system)
-  - [Agents (36)](#agents-system)
+  - [Skills (155)](#skills-system)
+  - [Agents (38)](#agents-system)
   - [Hooks (33)](#hooks-system)
   - [TLDR Code Analysis](#tldr-code-analysis)
   - [Memory System](#memory-system)
@@ -52,7 +52,7 @@ Claude Code has a **compaction problem**: when context fills up, the system comp
 | Starting fresh each session | Memory system recalls + daemon auto-extracts learnings |
 | Reading entire files burns tokens | 5-layer code analysis + semantic index |
 | Complex tasks need coordination | Meta-skills orchestrate agent workflows |
-| Repeating workflows manually | 109 skills with natural language triggers |
+| Repeating workflows manually | 155 skills with natural language triggers |
 
 **The mantra: Compound, don't compact.** Extract learnings automatically, then start fresh with full context.
 
@@ -227,7 +227,7 @@ Each bead is executed by an ephemeral **ralph-worker** in an isolated git worktr
 
 #### Ralph Worker Lifecycle
 
-1. **Spawn** — Orchestrator creates worktree, queues ralph-worker
+1. **Claim + Spawn** — Orchestrator claims bead, creates worktree, queues ralph-worker
 2. **Memory Injection** — `ensure-worktree.sh` hook queries memory ONCE at spawn
 3. **TDD Workflow** — Ralph follows kraken's TDD patterns:
    - Write failing tests
@@ -436,7 +436,7 @@ uv run python -m scripts.setup.wizard
 | 2 | Check prerequisites (Docker, Python, uv, bd) |
 | 3-5 | Database + API key configuration |
 | 6-7 | Start Docker stack, run migrations |
-| 8 | Install Claude Code integration (36 agents, 109 skills, 33 hooks) |
+| 8 | Install Claude Code integration (38 agents, 155 skills, 33 hooks) |
 | 9 | God-Ralph state directories + hooks |
 | 10 | Math features (SymPy, Z3, Pint - optional) |
 | 11 | TLDR code analysis tool |
@@ -493,7 +493,7 @@ claude
 │         ▼                                                           │
 │  ┌─────────────┐    ┌─────────────┐    ┌─────────────┐             │
 │  │   Skills    │    │   Agents    │    │    Hooks    │             │
-│  │   (109)     │───▶│    (36)     │◀───│    (33)     │             │
+│  │   (155)     │───▶│    (38)     │◀───│    (33)     │             │
 │  └─────────────┘    └─────────────┘    └─────────────┘             │
 │         │                  │                  │                     │
 │         ▼                  ▼                  ▼                     │
@@ -861,7 +861,7 @@ What do I want to do?
 
 Agents are specialized AI workers spawned via the Task tool. Located in `.claude/agents/`.
 
-#### Agent Categories (36 active)
+#### Agent Categories (38 active)
 
 **God-Ralph (4)** — The Primary Execution Engine
 - **orchestrator**: Persistent coordinator managing parallel Ralph workers. Handles spawning, verification, merging, and recovery.
@@ -1358,8 +1358,8 @@ This will:
 
 | Component | Location |
 |-----------|----------|
-| Agents (36) | ~/.claude/agents/ |
-| Skills (109) | ~/.claude/skills/ |
+| Agents (38) | ~/.claude/agents/ |
+| Skills (155) | ~/.claude/skills/ |
 | Hooks (33) | ~/.claude/hooks/ |
 | Commands | ~/.claude/commands/ |
 | Rules | ~/.claude/rules/ |
@@ -1433,7 +1433,7 @@ Services without API keys still work:
 ```
 continuous-claude/
 ├── .claude/
-│   ├── agents/           # 36 specialized AI agents
+│   ├── agents/           # 38 specialized AI agents
 │   │   ├── orchestrator.md      # God-Ralph coordinator
 │   │   ├── ralph-worker.md      # Ephemeral bead executor
 │   │   ├── verification-ralph.md # Pre-merge verification
@@ -1461,7 +1461,7 @@ continuous-claude/
 │   │   ├── bd-utils.sh   # bd CLI wrappers
 │   │   ├── cleanup-worktree.sh
 │   │   └── ensure-symlink.sh
-│   ├── skills/           # 109 modular capabilities
+│   ├── skills/           # 155 modular capabilities
 │   ├── rules/            # System policies
 │   └── settings.json     # Hook configuration
 ├── .worktrees/           # Git worktrees (gitignored)

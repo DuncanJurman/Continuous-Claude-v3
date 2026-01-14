@@ -170,17 +170,41 @@ BRANCH_NAME="ralph/$BEAD_ID"
 log_msg "Creating/reusing worktree at $FULL_WORKTREE_PATH"
 
 # === ATOMIC WORKTREE CREATION WITH LOCKING ===
-# Use flock for atomic operations to prevent race conditions
 LOCK_FILE="$LOCK_DIR/worktree-$BEAD_ID.lock"
+LOCK_DIR_PATH=""
+LOCK_MODE=""
+
+release_lock() {
+    if [ "$LOCK_MODE" = "flock" ]; then
+        flock -u 200
+    elif [ -n "$LOCK_DIR_PATH" ]; then
+        rmdir "$LOCK_DIR_PATH" 2>/dev/null || true
+    fi
+}
 
 # Create parent directory for worktree
 mkdir -p "$(dirname "$FULL_WORKTREE_PATH")"
 
-# Acquire lock for worktree creation
-exec 200>"$LOCK_FILE"
-if ! flock -n 200; then
-    log_msg "Another process is creating worktree for $BEAD_ID, waiting..."
-    flock 200  # Wait for lock
+# Acquire lock for worktree creation (portable fallback if flock missing)
+if command -v flock >/dev/null 2>&1; then
+    LOCK_MODE="flock"
+    exec 200>"$LOCK_FILE"
+    if ! flock -n 200; then
+        log_msg "Another process is creating worktree for $BEAD_ID, waiting..."
+        flock 200  # Wait for lock
+    fi
+else
+    LOCK_MODE="mkdir"
+    LOCK_DIR_PATH="${LOCK_FILE}.d"
+    attempts=0
+    while ! mkdir "$LOCK_DIR_PATH" 2>/dev/null; do
+        attempts=$((attempts + 1))
+        if [ "$attempts" -ge 150 ]; then
+            log_msg "ERROR: Timed out waiting for lock $LOCK_DIR_PATH"
+            deny_with_reason "Timed out waiting for worktree lock for bead $BEAD_ID"
+        fi
+        sleep 0.2
+    done
 fi
 
 if [ -d "$FULL_WORKTREE_PATH" ]; then
@@ -197,13 +221,13 @@ else
         WORKTREE_ERROR=$(git -C "$PROJECT_ROOT" worktree add "$FULL_WORKTREE_PATH" -b "$BRANCH_NAME" 2>&1 || true)
         log_msg "ERROR: Failed to create worktree: $WORKTREE_ERROR"
         rm -f "$QUEUE_FILE"
-        flock -u 200  # Release lock
+        release_lock
         deny_with_reason "Failed to create worktree for bead $BEAD_ID: $WORKTREE_ERROR"
     fi
 fi
 
 # Release lock
-flock -u 200
+release_lock
 
 # === INJECT MEMORY CONTEXT ===
 MEMORY_CONTEXT=""
