@@ -300,6 +300,7 @@ Ralph Worker completes bead
 | `/ralph health` | Full health check with actionable fixes |
 | `/ralph gc` | Garbage collect orphaned worktrees |
 | `/ralph recover <bead-id>` | Recover specific bead from failed state |
+| `/ralph unlock [--force]` | Clear stale orchestrator lock |
 
 ### God-Ralph Agents
 
@@ -1363,7 +1364,7 @@ This will:
 | Commands | ~/.claude/commands/ |
 | Rules | ~/.claude/rules/ |
 | Scripts | ~/.claude/scripts/ |
-| God-Ralph State | ~/.claude/state/god-ralph/ |
+| God-Ralph State | .claude/state/god-ralph/ |
 | PostgreSQL | Docker container |
 
 ### For Brownfield Projects

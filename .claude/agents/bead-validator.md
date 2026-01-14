@@ -148,6 +148,9 @@ Apply the validation checklist and fix issues as you go:
 | Criteria specific/testable? | If vague, refine via `bd update` or `bd comments` |
 | Verification commands? | If missing, add via `bd comments` |
 | Scoped to THIS bead? | If too broad, note for human review |
+| **Parallelism Metadata** | | |
+| `impact_paths` present? | If missing, add via `bd comments` |
+| `impact_paths` scoped? | If too broad, refine or flag for review |
 | **Dependencies** | | |
 | All blocking captured? | Add missing: `bd dep add` |
 | Epic depends on children? | Fix if wrong: `bd dep remove` + `bd dep add` |

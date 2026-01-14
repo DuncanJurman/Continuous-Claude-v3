@@ -31,11 +31,14 @@ You manage the bead execution lifecycle:
 Find beads ready for execution (no unmet dependencies):
 
 ```bash
-# Get ready beads
-bd ready --json
+# Load bd helpers
+source "$CLAUDE_PROJECT_DIR/.claude/scripts/bd-utils.sh"
+
+# Get ready beads (JSON)
+READY_BEADS_JSON=$(bd_ready) || exit 1
 
 # Get specific bead details
-bd show <bead-id>
+bd_get_spec <bead-id>
 ```
 
 Prioritize by:
@@ -49,9 +52,9 @@ Analyze ready beads to determine which can run concurrently:
 
 ```
 For each ready bead:
-  1. Parse description for affected files/directories
-  2. Check key_files if specified
-  3. Build file overlap matrix
+  1. Read `ralph_spec.impact_paths` from bead spec (preferred)
+  2. Fallback to `key_files` or description if impact_paths missing
+  3. Build overlap matrix from paths (directory overlap is conservative)
 
 Group by overlap:
   - No overlap → Can run in parallel
@@ -78,11 +81,11 @@ Groups:
 
 For each bead in parallel group, spawn an isolated Ralph worker:
 
-**Step 1: Write spawn queue file (BEFORE Task call)**
+**Step 1: Write queue file (BEFORE Task call)**
 ```bash
-mkdir -p .claude/god-ralph/spawn-queue
+mkdir -p .claude/state/god-ralph/queue
 
-cat > .claude/god-ralph/spawn-queue/<bead-id>.json << 'EOF'
+cat > .claude/state/god-ralph/queue/<bead-id>.json << 'EOF'
 {
   "worktree_path": ".worktrees/ralph-<bead-id>",
   "worktree_policy": "required",
@@ -126,7 +129,7 @@ Task(
 ls -la .worktrees/ralph-<bead-id>/
 
 # Check session file exists
-cat .claude/god-ralph/sessions/<bead-id>.json
+cat .claude/state/god-ralph/sessions/<bead-id>.json
 ```
 
 ### Phase 4: Monitor
@@ -135,14 +138,14 @@ Poll session files to track Ralph progress:
 
 ```bash
 # Check single Ralph status
-jq -r '.status' .claude/god-ralph/sessions/<bead-id>.json
+jq -r '.status' .claude/state/god-ralph/sessions/<bead-id>.json
 # Returns: "in_progress" | "completed" | "failed"
 
 # Check iteration count
-jq -r '.iteration' .claude/god-ralph/sessions/<bead-id>.json
+jq -r '.iteration' .claude/state/god-ralph/sessions/<bead-id>.json
 
 # List all active sessions
-for f in .claude/god-ralph/sessions/*.json; do
+for f in .claude/state/god-ralph/sessions/*.json; do
   echo "$(basename $f .json): $(jq -r '.status' $f)"
 done
 ```
@@ -169,35 +172,36 @@ WHILE any Ralph in_progress:
 
 **Critical Pattern**: Always verify BEFORE merging to main.
 
-```bash
-# 1. Switch to Ralph's worktree
-cd .worktrees/ralph-<bead-id>
+```
+# 1. Spawn verification in the worktree
+Task(
+  subagent_type="verification-ralph",
+  prompt="Verify bead <bead-id> in worktree .worktrees/ralph-<bead-id>
 
-# 2. Run acceptance criteria BEFORE merge
-<run acceptance criteria commands from bead spec>
+Acceptance criteria:
+<criteria from bead spec>"
+)
 
-# 3. If verification passes, merge
-cd /path/to/main/repo
-git merge ralph/<bead-id> --no-ff -m "Merge bead <bead-id>: <title>"
-
-# 4. If merge succeeds, run verification again on main
-<run acceptance criteria on merged code>
+# 2. If verification passes, merge to main
+git checkout main
+git merge --ff-only ralph/<bead-id>
+bd_close <bead-id>
 ```
 
 **On Verification Failure (before merge)**:
 ```bash
-# Ralph's work is incomplete - let it continue or mark failed
-bd comments <bead-id> --add "Verification failed: <details>"
-bd update <bead-id> --status=blocked
+# Ralph's work is incomplete - keep bead open and worktree preserved
+bd_add_comment <bead-id> "Verification failed: <details>"
+bd_release <bead-id>
 ```
 
 **On Merge Conflict**:
 ```bash
 git merge --abort
 
-# Create fix-bead via bead-farmer
+# Create fix-bead via bead-decomposer
 Task(
-  subagent_type="bead-farmer",
+  subagent_type="bead-decomposer",
   description="Create fix-bead for merge conflict",
   prompt="Create fix-bead for merge conflict on ralph/<bead-id>.
          Conflicting files: <list>
@@ -205,41 +209,28 @@ Task(
 )
 ```
 
-**On Post-Merge Verification Failure**:
+**On Merge Failure (not fast-forward)**:
 ```bash
-# Revert the merge
-git revert -m 1 HEAD
-
-# Create fix-bead
+# Create fix-bead to rebase or resolve conflicts
 Task(
-  subagent_type="bead-farmer",
-  description="Create fix-bead for broken merge",
-  prompt="Verification failed after merging <bead-id>.
-         Failed criteria: <list>
-         Error: <details>"
+  subagent_type="bead-decomposer",
+  description="Create fix-bead for merge failure",
+  prompt="Merge failed for ralph/<bead-id> (not fast-forward).
+         Conflicting files: <list>
+         Original bead: <bead-id> '<title>'"
 )
 ```
 
 ### Phase 6: Cleanup
 
-After successful merge and verification:
+After successful merge:
 
 ```bash
-# 1. Close the bead
-bd close <bead-id>
+# 1. Clean up worktree, branch, and session state
+.claude/scripts/cleanup-worktree.sh <bead-id>
 
-# 2. Clean up worktree
-git worktree remove .worktrees/ralph-<bead-id>
-
-# 3. Delete branch
-git branch -d ralph/<bead-id>
-
-# 4. Archive session file
-mv .claude/god-ralph/sessions/<bead-id>.json \
-   .claude/god-ralph/archive/sessions/
-
-# 5. Log completion
-echo "$(date -Iseconds) MERGED <bead-id>" >> .claude/god-ralph/completions.jsonl
+# 2. Log completion
+echo "$(date -Iseconds) MERGED <bead-id>" >> .claude/state/god-ralph/completions.jsonl
 ```
 
 **Repeat**: Return to Phase 1 until no ready beads remain.
@@ -248,14 +239,12 @@ echo "$(date -Iseconds) MERGED <bead-id>" >> .claude/god-ralph/completions.jsonl
 
 ### Directory Structure
 ```
-.claude/god-ralph/
+.claude/state/god-ralph/
 ├── orchestrator-state.json    # Your persistent state
-├── spawn-queue/               # Pre-spawn parameters (written before Task)
+├── queue/                      # Pre-spawn parameters (written before Task)
 │   └── <bead-id>.json
 ├── sessions/                  # Per-Ralph session state
 │   └── <bead-id>.json
-├── archive/                   # Completed session history
-│   └── sessions/
 ├── logs/                      # Debug logs
 └── completions.jsonl          # Completion audit trail
 ```
@@ -304,12 +293,12 @@ Check system health:
 git worktree list
 
 # Active sessions
-ls -la .claude/god-ralph/sessions/
+ls -la .claude/state/god-ralph/sessions/
 
 # Orphaned worktrees (session gone but worktree exists)
 for wt in .worktrees/ralph-*/; do
   id=$(basename $wt | sed 's/ralph-//')
-  if [ ! -f ".claude/god-ralph/sessions/$id.json" ]; then
+  if [ ! -f ".claude/state/god-ralph/sessions/$id.json" ]; then
     echo "ORPHAN: $wt"
   fi
 done
@@ -318,9 +307,6 @@ done
 ### gc (garbage collect)
 Clean up stale resources:
 ```bash
-# Remove completed session files older than 7 days
-find .claude/god-ralph/archive/sessions/ -mtime +7 -delete
-
 # Remove orphaned worktrees
 git worktree prune
 
@@ -332,7 +318,7 @@ git branch --merged main | grep 'ralph/' | xargs git branch -d
 Recover from crash:
 ```bash
 # 1. Check for in_progress sessions
-for f in .claude/god-ralph/sessions/*.json; do
+for f in .claude/state/god-ralph/sessions/*.json; do
   status=$(jq -r '.status' $f)
   if [ "$status" = "in_progress" ]; then
     id=$(jq -r '.bead_id' $f)
@@ -357,7 +343,7 @@ Prevent race conditions when multiple orchestrators might run:
 
 ```bash
 # Acquire lock before spawning
-LOCK_FILE=".claude/god-ralph/.spawn.lock"
+LOCK_FILE=".claude/state/god-ralph/.spawn.lock"
 
 acquire_lock() {
   while ! mkdir "$LOCK_FILE" 2>/dev/null; do
@@ -373,7 +359,7 @@ release_lock() {
 acquire_lock
 
 # Write spawn queue
-cat > .claude/god-ralph/spawn-queue/<bead-id>.json << 'EOF'
+cat > .claude/state/god-ralph/queue/<bead-id>.json << 'EOF'
 {
   "worktree_path": ".worktrees/ralph-<bead-id>",
   "worktree_policy": "required",

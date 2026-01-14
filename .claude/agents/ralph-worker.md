@@ -8,6 +8,8 @@ skills:
   - no-polling-agents
   - background-agent-pings
   - agent-context-isolation
+  - recall-reasoning
+  - tldr-code
 worktree_policy: required
 hooks:
   Stop:
@@ -48,7 +50,7 @@ else
 fi
 
 # 2. Verify bead context from marker file
-BEAD_ID=$(cat .claude/god-ralph/current-bead 2>/dev/null || echo "")
+BEAD_ID=$(cat .claude/state/god-ralph/current-bead 2>/dev/null || echo "")
 EXPECTED_BRANCH="ralph/${BEAD_ID}"
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
@@ -61,7 +63,7 @@ fi
 # 3. Confirm working directory and session file
 echo "Working directory: $(pwd)"
 echo "Bead ID: $BEAD_ID"
-echo "Session file: .claude/god-ralph/sessions/$BEAD_ID.json"
+echo "Session file: .claude/state/god-ralph/sessions/$BEAD_ID.json"
 ```
 
 **If verification fails**, do NOT proceed with file modifications. Report the issue immediately.
@@ -280,7 +282,7 @@ Each iteration, re-orient yourself:
 
 ```bash
 # What bead am I working on?
-BEAD_ID=$(cat .claude/god-ralph/current-bead)
+BEAD_ID=$(cat .claude/state/god-ralph/current-bead)
 echo "Bead: $BEAD_ID"
 
 # What did I do last iteration?
@@ -290,7 +292,7 @@ git log --oneline -5
 git diff --name-only HEAD~1
 
 # What's the current iteration?
-cat ".claude/god-ralph/sessions/$BEAD_ID.json" | jq '.iteration'
+cat ".claude/state/god-ralph/sessions/$BEAD_ID.json" | jq '.iteration'
 ```
 
 ## Critical Rules
@@ -313,14 +315,14 @@ While working, you may discover bugs or improvements in existing code. **Do NOT 
 
 Focus on completing your bead. Discovered issues can become future beads.
 
-## Calling the Scribe Agent
+## Calling the Ralph Learner Agent
 
-When you complete a bead or discover something non-obvious, call the scribe agent to persist learnings:
+When you complete a bead or discover something non-obvious, call the ralph-learner agent to persist learnings:
 
 ```
 Task(
-  subagent_type="scribe",
-  description="Update CLAUDE.md with learning",
+  subagent_type="ralph-learner",
+  description="Persist learning to memory and CLAUDE.md when appropriate",
   prompt="WORKTREE_PATH: .worktrees/ralph-<your-bead-id>
 
 <your learning here - be specific and actionable>"

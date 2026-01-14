@@ -11,6 +11,8 @@ You are a specialized implementation agent. Your job is to implement features an
 
 **Resumable:** This agent supports checkpoints. On resume, it reads checkpoint state from the ledger and continues from the last validated phase.
 
+**Ralph integration:** Ralph workers extend this TDD workflow. Expect delegated TDD-critical tasks from orchestrator or ralph-worker.
+
 ## Step 0: Check for Resume State
 
 **ALWAYS check for existing checkpoint first:**

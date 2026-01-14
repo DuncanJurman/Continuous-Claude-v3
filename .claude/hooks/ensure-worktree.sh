@@ -14,11 +14,11 @@
 #
 # Flow:
 # 1. Extract bead_id from Task prompt (looks for "BEAD_ID: xxx" marker)
-# 2. Read spawn params from per-bead queue file (.claude/god-ralph/spawn-queue/<bead-id>.json)
+# 2. Read spawn params from per-bead queue file (.claude/state/god-ralph/queue/<bead-id>.json)
 # 3. Create worktree atomically with locking
 # 4. Inject memory context from recall_learnings.py
-# 5. Create per-bead session file (.claude/god-ralph/sessions/<bead-id>.json)
-# 6. Create marker file in worktree (.claude/god-ralph/current-bead)
+# 5. Create per-bead session file (.claude/state/god-ralph/sessions/<bead-id>.json)
+# 6. Create marker file in worktree (.claude/state/god-ralph/current-bead)
 # 7. Return updatedInput with worktree + memory context prepended
 #
 
@@ -42,7 +42,7 @@ EOF
 # === INPUT PARSING ===
 INPUT=$(cat)
 TOOL_NAME=$(echo "$INPUT" | jq -r '.tool_name // empty')
-TOOL_INPUT=$(echo "$INPUT" | jq -r '.tool_input // empty')
+TOOL_INPUT=$(echo "$INPUT" | jq '.tool_input // {}')
 
 # Only process Task tool calls
 if [ "$TOOL_NAME" != "Task" ]; then
@@ -74,14 +74,14 @@ if [ -z "$PROJECT_ROOT" ]; then
     PROJECT_ROOT=$(pwd)
 fi
 
-GOD_RALPH_DIR="$PROJECT_ROOT/.claude/god-ralph"
-SESSIONS_DIR="$GOD_RALPH_DIR/sessions"
-SPAWN_QUEUE_DIR="$GOD_RALPH_DIR/spawn-queue"
-LOG_DIR="$GOD_RALPH_DIR/logs"
-LOCK_DIR="$GOD_RALPH_DIR/locks"
+STATE_DIR="$PROJECT_ROOT/.claude/state/god-ralph"
+SESSIONS_DIR="$STATE_DIR/sessions"
+QUEUE_DIR="$STATE_DIR/queue"
+LOG_DIR="$STATE_DIR/logs"
+LOCK_DIR="$STATE_DIR/locks"
 
-# Setup logging and locks directories
-mkdir -p "$LOG_DIR" "$LOCK_DIR"
+# Setup logging, locks, and queue directories
+mkdir -p "$LOG_DIR" "$LOCK_DIR" "$QUEUE_DIR"
 LOG_FILE="$LOG_DIR/worktree-hook.log"
 
 log_msg() {
@@ -91,10 +91,31 @@ log_msg() {
 # === BEAD_ID EXTRACTION FROM PROMPT (macOS-compatible) ===
 PROMPT=$(echo "$TOOL_INPUT" | jq -r '.prompt // empty')
 
-# Primary: Look for BEAD_ID: marker (portable grep -E + sed -E)
-# This regex matches: BEAD_ID: followed by alphanumeric-with-dashes
-BEAD_ID=$(echo "$PROMPT" | grep -E 'BEAD_ID:[[:space:]]*[a-zA-Z0-9-]+' | \
-          sed -E 's/.*BEAD_ID:[[:space:]]*([a-zA-Z0-9-]+).*/\1/' | head -1)
+# Primary: Look for BEAD_ID: or Bead ID heading (portable awk)
+BEAD_ID=$(echo "$PROMPT" | awk '
+  {
+    lower = tolower($0)
+    if (match(lower, /^[[:space:]]*bead_id[[:space:]]*:/)) {
+      sub(/^[^:]*:[[:space:]]*/, "", $0)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+      print $0
+      exit
+    }
+    if (match(lower, /^[[:space:]]*bead[[:space:]]+id[[:space:]]*:/)) {
+      sub(/^[^:]*:[[:space:]]*/, "", $0)
+      gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+      print $0
+      exit
+    }
+    if (match(lower, /^[[:space:]]*#{1,3}[[:space:]]*bead[[:space:]]+id[[:space:]]*$/)) {
+      if (getline) {
+        gsub(/^[[:space:]]+|[[:space:]]+$/, "", $0)
+        print $0
+        exit
+      }
+    }
+  }
+' | head -1)
 
 if [ -z "$BEAD_ID" ]; then
     # Fallback: try to find beads-XXX pattern (alphanumeric, not just numeric)
@@ -109,10 +130,10 @@ fi
 log_msg "Extracted bead_id: $BEAD_ID"
 
 # === READ PER-BEAD SPAWN QUEUE FILE ===
-QUEUE_FILE="$SPAWN_QUEUE_DIR/$BEAD_ID.json"
+QUEUE_FILE="$QUEUE_DIR/$BEAD_ID.json"
 if [ ! -f "$QUEUE_FILE" ]; then
-    log_msg "ERROR: Spawn queue file not found at $QUEUE_FILE"
-    deny_with_reason "Spawn queue file not found at $QUEUE_FILE. Orchestrator must write spawn params before calling Task."
+    log_msg "ERROR: Queue file not found at $QUEUE_FILE"
+    deny_with_reason "Queue file not found at $QUEUE_FILE. Orchestrator must write spawn params before calling Task."
 fi
 
 WORKTREE_PATH=$(jq -r '.worktree_path // empty' "$QUEUE_FILE")
@@ -238,23 +259,23 @@ EOF
 log_msg "Created session file: $SESSION_FILE"
 
 # === CREATE WORKTREE MARKER AND SYMLINK ===
-WORKTREE_GOD_RALPH="$FULL_WORKTREE_PATH/.claude/god-ralph"
-mkdir -p "$WORKTREE_GOD_RALPH"
+WORKTREE_STATE_DIR="$FULL_WORKTREE_PATH/.claude/state/god-ralph"
+mkdir -p "$WORKTREE_STATE_DIR"
 
 # Marker file with bead_id (for stop hook to identify which session)
-echo "$BEAD_ID" > "$WORKTREE_GOD_RALPH/current-bead"
-log_msg "Created marker file: $WORKTREE_GOD_RALPH/current-bead"
+echo "$BEAD_ID" > "$WORKTREE_STATE_DIR/current-bead"
+log_msg "Created marker file: $WORKTREE_STATE_DIR/current-bead"
 
 # Symlink to sessions directory for easy access
-if [ -L "$WORKTREE_GOD_RALPH/sessions" ]; then
-    rm -f "$WORKTREE_GOD_RALPH/sessions"
+if [ -L "$WORKTREE_STATE_DIR/sessions" ]; then
+    rm -f "$WORKTREE_STATE_DIR/sessions"
 fi
-ln -sf "$SESSIONS_DIR" "$WORKTREE_GOD_RALPH/sessions"
-log_msg "Created symlink: $WORKTREE_GOD_RALPH/sessions -> $SESSIONS_DIR"
+ln -sf "$SESSIONS_DIR" "$WORKTREE_STATE_DIR/sessions"
+log_msg "Created symlink: $WORKTREE_STATE_DIR/sessions -> $SESSIONS_DIR"
 
 # === CLEANUP SPAWN QUEUE FILE ===
 rm -f "$QUEUE_FILE"
-log_msg "Removed spawn queue file: $QUEUE_FILE"
+log_msg "Removed queue file: $QUEUE_FILE"
 
 # === BUILD ENHANCED PROMPT WITH WORKTREE + MEMORY CONTEXT ===
 # IMPORTANT: Prepend to existing prompt, do not replace
@@ -282,14 +303,13 @@ ENHANCED_PROMPT="${MEMORY_CONTEXT}${WORKTREE_CONTEXT}${PROMPT}"
 # Note: working_directory is NOT a supported Task input field per ClaudeDocs.
 # Worktree context is already embedded in the enhanced prompt.
 jq -n \
+  --argjson ti "$TOOL_INPUT" \
   --arg prompt "$ENHANCED_PROMPT" \
   '{
     "hookSpecificOutput": {
       "hookEventName": "PreToolUse",
       "permissionDecision": "allow",
-      "updatedInput": {
-        "prompt": $prompt
-      }
+      "updatedInput": ($ti + {prompt: $prompt})
     }
   }'
 

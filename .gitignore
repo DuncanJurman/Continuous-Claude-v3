@@ -87,6 +87,7 @@ plugins/
 session-env/
 telemetry/
 tldr/
+.worktrees/
 
 # Tool caches
 .qlty/

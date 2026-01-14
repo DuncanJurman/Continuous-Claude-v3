@@ -3,9 +3,9 @@
 # Clean up Ralph worktrees after completion
 #
 # Updated for per-bead session file architecture:
-# - Session files: .claude/god-ralph/sessions/<bead-id>.json
-# - Spawn queue files: .claude/god-ralph/spawn-queue/<bead-id>.json
-# - Marker files: {worktree}/.claude/god-ralph/current-bead
+# - Session files: .claude/state/god-ralph/sessions/<bead-id>.json
+# - Queue files: .claude/state/god-ralph/queue/<bead-id>.json
+# - Marker files: {worktree}/.claude/state/god-ralph/current-bead
 #
 # Usage:
 #   cleanup-worktree.sh <bead-id> [--keep-branch]  - Clean single worktree
@@ -16,9 +16,9 @@
 set -euo pipefail
 
 # State directories
-STATE_DIR=".claude/god-ralph"
+STATE_DIR=".claude/state/god-ralph"
 SESSIONS_DIR="$STATE_DIR/sessions"
-SPAWN_QUEUE_DIR="$STATE_DIR/spawn-queue"
+QUEUE_DIR="$STATE_DIR/queue"
 WORKTREES_DIR=".worktrees"
 
 # Function to clean a single worktree
@@ -29,7 +29,7 @@ cleanup_single() {
     local worktree_path="$WORKTREES_DIR/ralph-$bead_id"
     local branch_name="ralph/$bead_id"
     local session_file="$SESSIONS_DIR/$bead_id.json"
-    local queue_file="$SPAWN_QUEUE_DIR/$bead_id.json"
+    local queue_file="$QUEUE_DIR/$bead_id.json"
 
     echo "[cleanup-worktree] Cleaning up bead: $bead_id"
 
@@ -67,9 +67,9 @@ cleanup_single() {
         rm -f "$session_file"
     fi
 
-    # Clean up any leftover spawn queue file
+    # Clean up any leftover queue file
     if [[ -f "$queue_file" ]]; then
-        echo "[cleanup-worktree] Removing spawn queue file: $queue_file"
+        echo "[cleanup-worktree] Removing queue file: $queue_file"
         rm -f "$queue_file"
     fi
 
@@ -107,16 +107,16 @@ show_status() {
 
     echo ""
 
-    # Show spawn queue status
-    echo "Spawn queue directory: $SPAWN_QUEUE_DIR"
-    if [[ -d "$SPAWN_QUEUE_DIR" ]]; then
+    # Show queue status
+    echo "Queue directory: $QUEUE_DIR"
+    if [[ -d "$QUEUE_DIR" ]]; then
         local queue_count
-        queue_count=$(find "$SPAWN_QUEUE_DIR" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
+        queue_count=$(find "$QUEUE_DIR" -name "*.json" -type f 2>/dev/null | wc -l | tr -d ' ')
         echo "  Pending spawns: $queue_count"
 
         if [[ $queue_count -gt 0 ]]; then
             echo "  (These are beads waiting to be spawned)"
-            for queue_file in "$SPAWN_QUEUE_DIR"/*.json; do
+            for queue_file in "$QUEUE_DIR"/*.json; do
                 [[ -f "$queue_file" ]] || continue
                 local bead_id
                 bead_id=$(basename "$queue_file" .json)
@@ -139,7 +139,7 @@ show_status() {
 
             local bead_id marker_file session_file status iteration max_iterations
             bead_id=$(basename "$worktree" | sed 's/^ralph-//')
-            marker_file="$worktree/.claude/god-ralph/current-bead"
+            marker_file="$worktree/.claude/state/god-ralph/current-bead"
             session_file="$SESSIONS_DIR/$bead_id.json"
 
             if [[ -f "$session_file" ]]; then
@@ -241,8 +241,8 @@ case "${1:-}" in
         echo "  cleanup-worktree.sh --status                    - Show worktree status"
         echo ""
         echo "Per-bead files cleaned:"
-        echo "  - .claude/god-ralph/sessions/<bead-id>.json"
-        echo "  - .claude/god-ralph/spawn-queue/<bead-id>.json"
+        echo "  - .claude/state/god-ralph/sessions/<bead-id>.json"
+        echo "  - .claude/state/god-ralph/queue/<bead-id>.json"
         echo "  - .worktrees/ralph-<bead-id>/"
         echo "  - Branch: ralph/<bead-id>"
         ;;

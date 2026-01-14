@@ -145,8 +145,13 @@ acceptance_criteria:
   - type: test
     command: npm test -- --grep 'auth'
   - type: lint
-    command: npm run lint"
+    command: npm run lint
+impact_paths:
+  - src/api/
+  - tests/"
 ```
+
+Always include `impact_paths` for the files/directories this bead will touch. The orchestrator uses these for safe parallel grouping.
 
 ### Step 6: Establish Dependencies
 

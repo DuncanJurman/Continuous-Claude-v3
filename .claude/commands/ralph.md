@@ -14,8 +14,11 @@ Orchestrates parallel Ralph worker agents to execute beads from the `.beads/` di
 | `/ralph start` | Start orchestrator (dry-run first) |
 | `/ralph <bead-id>` | Run single Ralph worker for specific bead |
 | `/ralph stop` | Stop gracefully (let workers finish) |
+| `/ralph resume` | Resume from existing state + worktrees |
 | `/ralph health` | Full system health check |
 | `/ralph gc` | Garbage collect stale worktrees |
+| `/ralph recover <bead-id>` | Recover a specific bead from failed state |
+| `/ralph unlock [--force]` | Clear stale orchestrator lock |
 
 ## Usage
 
@@ -88,6 +91,30 @@ Stop accepting new work, let active workers finish:
 
 Workers in progress will complete their current iteration cycle.
 
+### Resume (`/ralph resume`)
+
+Resume from existing state and any active worktrees:
+
+```bash
+/ralph resume
+```
+
+### Recover (`/ralph recover <bead-id>`)
+
+Recover a specific bead from a failed or stuck state:
+
+```bash
+/ralph recover beads-123
+```
+
+### Unlock (`/ralph unlock [--force]`)
+
+Clear a stale orchestrator lock if an earlier run crashed:
+
+```bash
+/ralph unlock
+```
+
 ### Health Check (`/ralph health`)
 
 Full system health check:
@@ -154,7 +181,7 @@ When `/ralph start` is invoked:
 bd list > /dev/null || { echo "bd CLI not available"; exit 1; }
 
 # 2. Check for ready beads
-READY_BEADS=$(bd ready --format json | jq -r '.[].id')
+READY_BEADS=$(bd ready --json | jq -r '.[].id')
 if [ -z "$READY_BEADS" ]; then
   echo "No beads ready for execution"
   exit 0
@@ -162,9 +189,16 @@ fi
 
 # 3. For each ready bead (up to parallelism limit):
 for BEAD_ID in $READY_BEADS; do
-  # Create worktree
-  WORKTREE_PATH=".worktrees/ralph-${BEAD_ID}"
-  git worktree add "$WORKTREE_PATH" -b "ralph/${BEAD_ID}"
+  # Write queue file for ensure-worktree hook
+  mkdir -p .claude/state/god-ralph/queue
+  cat > ".claude/state/god-ralph/queue/${BEAD_ID}.json" << EOF
+{
+  "worktree_path": ".worktrees/ralph-${BEAD_ID}",
+  "worktree_policy": "required",
+  "max_iterations": 50,
+  "completion_promise": "BEAD COMPLETE"
+}
+EOF
 
   # Spawn ralph-worker agent in that worktree
   # (Worker uses stop hook for iteration control)
@@ -179,13 +213,11 @@ When `/ralph <bead-id>` is invoked:
 Task(
   subagent_type="ralph-worker",
   model="opus",
-  cwd=".worktrees/ralph-<bead-id>",
   prompt="
-## Bead ID
-<bead-id>
+BEAD_ID: <bead-id>
 
 ## Bead Specification
-$(bd show <bead-id> --format yaml)
+$(bd show <bead-id> --json)
 
 ## Instructions
 Complete this bead following TDD workflow.

@@ -4,6 +4,16 @@ description: Extracts and persists learnings from Ralph bead completions. Stores
 model: sonnet
 tools: [Bash, Read, Write]
 worktree_policy: none
+hooks:
+  PreToolUse:
+    - matcher: "Edit|Write"
+      hooks:
+        - type: command
+          command: "$CLAUDE_PROJECT_DIR/.claude/hooks/ralph-doc-only-check.sh"
+  Stop:
+    - hooks:
+        - type: command
+          command: "$CLAUDE_PROJECT_DIR/.claude/scripts/ensure-symlink.sh"
 ---
 
 # Ralph Learner Agent

@@ -685,7 +685,7 @@ ralph_spec:
 
 | Path | Purpose |
 |------|---------|
-| `.claude/state/god-ralph/queue/` | Pending beads (YAML files) |
+| `.claude/state/god-ralph/queue/` | Pending beads (JSON files) |
 | `.claude/state/god-ralph/sessions/` | Active worker sessions |
 | `.claude/state/god-ralph/logs/` | Worker execution logs |
 | `.claude/state/god-ralph/orchestrator-state.json` | Queue state and assignments |

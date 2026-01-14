@@ -7,7 +7,7 @@
 # Ralph Wiggum iteration loop with per-bead session state.
 #
 # Flow:
-# 1. Read bead_id from worktree marker file (.claude/god-ralph/current-bead)
+# 1. Read bead_id from worktree marker file (.claude/state/god-ralph/current-bead)
 # 2. Read session state from per-bead session file
 # 3. Check for completion promise in transcript
 # 4. If complete or max iterations: allow exit, log to JSONL
@@ -44,7 +44,7 @@ fi
 
 # === FIND BEAD_ID FROM MARKER FILE ===
 # The hook runs in the worktree context (or main repo if testing)
-MARKER_FILE=".claude/god-ralph/current-bead"
+MARKER_FILE=".claude/state/god-ralph/current-bead"
 
 if [ ! -f "$MARKER_FILE" ]; then
     # Not in a worktree context with proper setup, allow exit
@@ -61,13 +61,13 @@ fi
 
 # === FIND SESSION FILE ===
 # Try symlinked sessions directory first (worktree context)
-SESSION_FILE=".claude/god-ralph/sessions/$BEAD_ID.json"
+SESSION_FILE=".claude/state/god-ralph/sessions/$BEAD_ID.json"
 
 if [ ! -f "$SESSION_FILE" ]; then
     # Fallback: try main repo location via git
     MAIN_REPO=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
     if [ -n "$MAIN_REPO" ]; then
-        SESSION_FILE="$MAIN_REPO/.claude/god-ralph/sessions/$BEAD_ID.json"
+        SESSION_FILE="$MAIN_REPO/.claude/state/god-ralph/sessions/$BEAD_ID.json"
     fi
 fi
 
