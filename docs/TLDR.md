@@ -146,7 +146,7 @@ tldr cfg src/auth.py login   # <10ms if cached
 
 **Per-project isolation:** Each project gets its own daemon via deterministic socket names:
 ```bash
-/tmp/tldr-{md5(project_path)[:8]}.sock
+$TMPDIR/tldr-{md5(project_path)[:8]}.sock   # Falls back to /tmp if TMPDIR is unset
 ```
 
 No cross-contamination. Work on 5 projects simultaneously without conflicts.
