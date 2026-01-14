@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, writeFileSync, rmSync, unlinkSync } from 'fs';
 import { join } from 'path';
 import { execSync, spawnSync } from 'child_process';
+import { tmpdir } from 'os';
 import * as net from 'net';
 import * as crypto from 'crypto';
 
@@ -24,7 +25,7 @@ import {
 } from '../daemon-client.js';
 
 // Test fixtures
-const TEST_PROJECT_DIR = '/tmp/daemon-client-test';
+const TEST_PROJECT_DIR = join(tmpdir(), 'daemon-client-test');
 const TLDR_DIR = join(TEST_PROJECT_DIR, '.tldr');
 
 function setupTestEnv(): void {
@@ -42,7 +43,7 @@ function cleanupTestEnv(): void {
 // Helper to compute socket path (mirrors the daemon logic)
 function computeSocketPath(projectDir: string): string {
   const hash = crypto.createHash('md5').update(projectDir).digest('hex').substring(0, 8);
-  return `/tmp/tldr-${hash}.sock`;
+  return join(tmpdir(), `tldr-${hash}.sock`);
 }
 
 // =============================================================================
@@ -51,13 +52,13 @@ function computeSocketPath(projectDir: string): string {
 
 describe('getSocketPath', () => {
   it('should compute socket path using md5 hash', () => {
-    // The daemon uses: /tmp/tldr-{md5(project_path)[:8]}.sock
+    // The daemon uses: {tmpdir}/tldr-{md5(project_path)[:8]}.sock
     const projectPath = '/Users/test/myproject';
     const expectedHash = crypto.createHash('md5')
       .update(projectPath)
       .digest('hex')
       .substring(0, 8);
-    const expectedPath = `/tmp/tldr-${expectedHash}.sock`;
+    const expectedPath = join(tmpdir(), `tldr-${expectedHash}.sock`);
 
     expect(getSocketPath(projectPath)).toBe(expectedPath);
   });

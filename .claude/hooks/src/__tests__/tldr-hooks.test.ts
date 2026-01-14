@@ -13,10 +13,11 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync, statSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import { execSync } from 'child_process';
 
 // Test fixtures
-const TEST_PROJECT_DIR = '/tmp/tldr-hooks-test';
+const TEST_PROJECT_DIR = join(tmpdir(), 'tldr-hooks-test');
 const TLDR_CACHE_DIR = join(TEST_PROJECT_DIR, '.claude', 'cache', 'tldr');
 const SEMANTIC_INDEX_DIR = join(TEST_PROJECT_DIR, '.tldr', 'cache', 'semantic');
 

@@ -13,6 +13,7 @@
 import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'fs';
 import { execSync, spawnSync } from 'child_process';
 import { join, resolve } from 'path';
+import { tmpdir } from 'os';
 import * as net from 'net';
 import * as crypto from 'crypto';
 
@@ -25,13 +26,21 @@ function resolveProjectDir(projectDir: string): string {
 }
 
 /**
+ * Resolve temp directory for daemon files.
+ * Uses TMPDIR when set (macOS), otherwise OS default.
+ */
+function getTempDir(): string {
+  return process.env.TMPDIR || tmpdir();
+}
+
+/**
  * Get lock file path for daemon startup.
  * Prevents race condition when multiple hooks try to start daemon.
  */
 function getLockPath(projectDir: string): string {
   const resolvedPath = resolveProjectDir(projectDir);
   const hash = crypto.createHash('md5').update(resolvedPath).digest('hex').substring(0, 8);
-  return `/tmp/tldr-${hash}.lock`;
+  return join(getTempDir(), `tldr-${hash}.lock`);
 }
 
 /**
@@ -40,7 +49,7 @@ function getLockPath(projectDir: string): string {
 function getPidPath(projectDir: string): string {
   const resolvedPath = resolveProjectDir(projectDir);
   const hash = crypto.createHash('md5').update(resolvedPath).digest('hex').substring(0, 8);
-  return `/tmp/tldr-${hash}.pid`;
+  return join(getTempDir(), `tldr-${hash}.pid`);
 }
 
 /**
@@ -202,7 +211,7 @@ export interface ConnectionInfo {
 
 /**
  * Get connection info based on platform.
- * Mirrors the Python daemon's logic.
+ * Mirrors the Python daemon's logic (uses OS temp dir).
  *
  * @param projectDir - Absolute path to project directory
  * @returns Connection info for Unix socket or TCP
@@ -217,13 +226,13 @@ export function getConnectionInfo(projectDir: string): ConnectionInfo {
     return { type: 'tcp', host: '127.0.0.1', port };
   } else {
     // Unix socket
-    return { type: 'unix', path: `/tmp/tldr-${hash}.sock` };
+    return { type: 'unix', path: join(getTempDir(), `tldr-${hash}.sock`) };
   }
 }
 
 /**
  * Compute deterministic socket path from project path.
- * Mirrors the Python daemon's logic: /tmp/tldr-{md5(path)[:8]}.sock
+ * Mirrors the Python daemon's logic: {tmpdir}/tldr-{md5(path)[:8]}.sock
  *
  * @param projectDir - Absolute path to project directory
  * @returns Socket path string (Unix only, use getConnectionInfo for cross-platform)
@@ -231,7 +240,7 @@ export function getConnectionInfo(projectDir: string): ConnectionInfo {
 export function getSocketPath(projectDir: string): string {
   const resolvedPath = resolveProjectDir(projectDir);
   const hash = crypto.createHash('md5').update(resolvedPath).digest('hex').substring(0, 8);
-  return `/tmp/tldr-${hash}.sock`;
+  return join(getTempDir(), `tldr-${hash}.sock`);
 }
 
 /**
@@ -578,7 +587,7 @@ export function queryDaemonSync(query: DaemonQuery, projectDir: string): DaemonR
       });
     } else {
       // Unix: Use nc (netcat) to communicate with Unix socket
-      // echo '{"cmd":"ping"}' | nc -U /tmp/tldr-xxx.sock
+      // echo '{"cmd":"ping"}' | nc -U /path/to/tldr-xxx.sock
       result = execSync(`echo '${input}' | nc -U "${connInfo.path}"`, {
         encoding: 'utf-8',
         timeout: QUERY_TIMEOUT,

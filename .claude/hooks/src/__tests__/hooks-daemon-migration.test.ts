@@ -20,10 +20,11 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { existsSync, mkdirSync, writeFileSync, rmSync } from 'fs';
 import { join } from 'path';
+import { tmpdir } from 'os';
 import * as crypto from 'crypto';
 
 // Test fixtures
-const TEST_PROJECT_DIR = '/tmp/hooks-daemon-migration-test';
+const TEST_PROJECT_DIR = join(tmpdir(), 'hooks-daemon-migration-test');
 const TLDR_DIR = join(TEST_PROJECT_DIR, '.tldr');
 
 function setupTestEnv(): void {
@@ -42,7 +43,7 @@ function cleanupTestEnv(): void {
 
 function computeSocketPath(projectDir: string): string {
   const hash = crypto.createHash('md5').update(projectDir).digest('hex').substring(0, 8);
-  return `/tmp/tldr-${hash}.sock`;
+  return join(tmpdir(), `tldr-${hash}.sock`);
 }
 
 // =============================================================================
