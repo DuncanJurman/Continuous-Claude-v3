@@ -81,7 +81,7 @@ Route to the appropriate specialist based on goal:
 | **Plan** | plan-agent | Oracle | Create implementation plans with phased approach |
 | **Build** | kraken | Kraken | Implementation agent - handles coding tasks via Task tool |
 | **Fix** | debug-agent | Sentinel | Investigate issues using codebase exploration and logs |
-| **Execute Beads** | orchestrator | Ralph | Parallel bead execution with Ralph workers |
+| **Execute Beads** | /ralph (command) | Ralph | Parallel bead execution via main-thread orchestrator workflow |
 
 **Fix workflow special case:** For Fix goals, first spawn debug-agent (Sentinel) to investigate. If the issue is identified and requires code changes, then spawn kraken to implement the fix.
 
@@ -192,20 +192,14 @@ Task(
 ```
 
 ### Execute Beads (Ralph)
-```
-Task(
-  subagent_type="orchestrator",
-  prompt="""
-  Execute beads from: [bead source or backlog]
+Use `/ralph` to run the orchestrator workflow in the main thread. Do NOT spawn the orchestrator subagent (subagents cannot spawn subagents).
 
-  Mode: [parallel/sequential]
-  Max workers: [number of parallel Ralph workers]
-  Output: Progress updates and completion status
-  """
-)
+```
+/ralph start --dry-run
+/ralph start --parallelism 4
 ```
 
-**Execute Beads workflow:** For bead execution, spawn the orchestrator which manages Ralph workers. The orchestrator handles:
+**Execute Beads workflow:** For bead execution, the main thread orchestrates Ralph workers and handles:
 - Bead selection and prioritization
 - Parallel worker spawning
 - Progress tracking and completion verification

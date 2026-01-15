@@ -6,6 +6,8 @@ description: Execute beads with parallel Ralph workers
 
 Orchestrates parallel Ralph worker agents to execute beads from the `.beads/` directory. Each worker operates in an isolated git worktree with its own branch.
 
+**Important:** Run this in the main thread. Do NOT spawn the orchestrator subagent (subagents cannot spawn subagents).
+
 ## Subcommands
 
 | Command | Description |

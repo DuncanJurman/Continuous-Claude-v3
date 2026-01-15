@@ -9,11 +9,11 @@ hooks:
     - matcher: "Edit|Write"
       hooks:
         - type: command
-          command: "$CLAUDE_PROJECT_DIR/.claude/hooks/ralph-doc-only-check.sh"
+          command: "$HOME/.claude/hooks/ralph-doc-only-check.sh"
   Stop:
     - hooks:
         - type: command
-          command: "$CLAUDE_PROJECT_DIR/.claude/scripts/ensure-symlink.sh"
+          command: "$HOME/.claude/scripts/ensure-symlink.sh"
 ---
 
 # Ralph Learner Agent

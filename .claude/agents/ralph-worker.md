@@ -15,7 +15,7 @@ hooks:
   Stop:
     - hooks:
         - type: command
-          command: "$CLAUDE_PROJECT_DIR/.claude/hooks/ralph-stop-hook.sh"
+          command: "$HOME/.claude/hooks/ralph-stop-hook.sh"
           timeout: 30
 ---
 
@@ -315,16 +315,28 @@ While working, you may discover bugs or improvements in existing code. **Do NOT 
 
 Focus on completing your bead. Discovered issues can become future beads.
 
-## Calling the Ralph Learner Agent
+## Persist Learnings (Do This Yourself)
 
-When you complete a bead or discover something non-obvious, call the ralph-learner agent to persist learnings:
+Subagents cannot spawn subagents. When you complete a bead or discover something non-obvious, persist learnings directly:
 
+### Step 1: Classify
+Pick one: `WORKING_SOLUTION`, `ERROR_FIX`, `CODEBASE_PATTERN`, `ARCHITECTURAL_DECISION`, `FAILED_APPROACH`.
+
+### Step 2: Store to Memory
+```bash
+cd "$CLAUDE_PROJECT_DIR/opc" && PYTHONPATH=. uv run python scripts/core/store_learning.py \
+  --session-id "$BEAD_ID" \
+  --type <TYPE> \
+  --content "<concise learning>" \
+  --context "<area it relates to>" \
+  --tags "tag1,tag2,tag3" \
+  --confidence high|medium|low
 ```
-Task(
-  subagent_type="ralph-learner",
-  description="Persist learning to memory and CLAUDE.md when appropriate",
-  prompt="WORKTREE_PATH: .worktrees/ralph-<your-bead-id>
 
-<your learning here - be specific and actionable>"
-)
+### Step 3: Update CLAUDE.md (only if durable)
+Only add to CLAUDE.md if it is **durable**, **specific**, and **non-obvious**. Use the worktree CLAUDE.md if `WORKTREE_PATH` is known; otherwise use `./CLAUDE.md`.
+
+Append under `## Learnings & Gotchas`:
+```
+- [YYYY-MM-DD] <actionable learning> (Source: <bead-id>)
 ```

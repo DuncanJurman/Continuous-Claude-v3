@@ -125,7 +125,7 @@ User Request: "Build a user settings page"
 │  → non-overlapping beads execute in PARALLEL                  │
 │  → each ralph-worker runs in isolated git worktree            │
 │  → verify-then-merge: each bead verified before merge to main │
-│  → ralph-learner extracts insights to memory                  │
+│  → ralph-workers persist insights to memory + CLAUDE.md       │
 └───────────────────────────────────────────────────────────────┘
         │
         ▼
@@ -140,7 +140,7 @@ User Request: "Build a user settings page"
 | **Safe merges** | Each bead verified BEFORE merging to main |
 | **Clear failures** | If a bead fails, you know exactly which one and why |
 | **Autonomous** | Ralph workers complete beads without human intervention |
-| **Learnings captured** | ralph-learner extracts insights from every completed bead |
+| **Learnings captured** | ralph-workers persist insights from every completed bead |
 
 ---
 
@@ -306,10 +306,10 @@ Ralph Worker completes bead
 
 | Agent | Role |
 |-------|------|
-| **orchestrator** | Persistent coordinator managing parallel Ralphs |
+| **orchestrator** | Main-thread coordinator invoked via `/ralph` (not a subagent) |
 | **ralph-worker** | Ephemeral bead executor using TDD workflow |
 | **verification-ralph** | Runs acceptance criteria before merge |
-| **ralph-learner** | Extracts learnings to memory + CLAUDE.md |
+| **ralph-learner** | Optional helper; ralph-worker persists learnings directly |
 
 ### State Management
 
@@ -859,15 +859,15 @@ What do I want to do?
 
 ### Agents System
 
-Agents are specialized AI workers spawned via the Task tool. Located in `.claude/agents/`.
+Agents are specialized AI workers spawned via the Task tool. Located in `.claude/agents/`. The orchestrator workflow runs in the main thread via `/ralph` (not as a subagent).
 
 #### Agent Categories (38 active)
 
 **God-Ralph (4)** — The Primary Execution Engine
-- **orchestrator**: Persistent coordinator managing parallel Ralph workers. Handles spawning, verification, merging, and recovery.
+- **orchestrator**: Main-thread coordinator (invoked via `/ralph`) managing parallel Ralph workers. Handles spawning, verification, merging, and recovery.
 - **ralph-worker**: Ephemeral bead executor using TDD workflow. Completes one bead in isolated worktree then exits.
 - **verification-ralph**: Runs acceptance criteria in worktree before merge. Reports pass/fail with severity levels.
-- **ralph-learner**: Extracts learnings from completed beads. Stores to memory + updates CLAUDE.md.
+- **ralph-learner**: Optional helper; ralph-worker persists learnings to memory + CLAUDE.md directly.
 
 **Orchestrators (2)**
 - **maestro**: Multi-agent coordination with patterns (Pipeline, Swarm, Jury)
@@ -909,7 +909,7 @@ Agents are specialized AI workers spawned via the Task tool. Located in `.claude
 
 | Workflow | Agent Chain |
 |----------|-------------|
-| **Feature (Primary)** | architect → bead-decomposer → bead-validator → orchestrator → ralph-workers → verification-ralph → ralph-learner |
+| **Feature (Primary)** | architect → bead-decomposer → bead-validator → /ralph (orchestrator) → ralph-workers → verification-ralph → learnings persisted |
 | Feature (Legacy) | architect → plan-reviewer → kraken → review-agent → arbiter |
 | Refactoring | phoenix → plan-reviewer → kraken → judge → arbiter |
 | Bug Fix | sleuth → spark/kraken → arbiter |
@@ -1252,7 +1252,7 @@ Spawns `bead-decomposer` → `bead-validator` to break your plan into atomic bea
 /ralph start [--max-parallel N]
 ```
 
-**Chain:** orchestrator → ralph-workers (parallel) → verification-ralph → merge → ralph-learner
+**Chain:** /ralph (main-thread orchestrator) → ralph-workers (parallel) → verification-ralph → merge → learnings persisted
 
 | Command | What it does |
 |---------|--------------|

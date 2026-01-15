@@ -58,7 +58,7 @@
           },
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/ensure-worktree.sh",
+            "command": "bash $HOME/.claude/hooks/ensure-worktree.sh",
             "timeout": 45
           }
         ]
@@ -99,7 +99,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash $HOME/.opc-dev/.claude/hooks/persist-project-dir.sh"
+            "command": "bash $HOME/.claude/hooks/persist-project-dir.sh"
           },
           {
             "type": "command",
