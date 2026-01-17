@@ -14,7 +14,24 @@
 # 5. If not complete: increment iteration and block exit
 #
 
-set -euo pipefail
+set -Eeuo pipefail
+
+FAIL_CLOSED_ALREADY=0
+
+fail_closed_stop() {
+  local exit_code=$?
+  if [ "${FAIL_CLOSED_ALREADY:-0}" = "1" ]; then
+    exit 0
+  fi
+  FAIL_CLOSED_ALREADY=1
+
+  # Fail closed: block stop to avoid losing loop/session state.
+  local reason="Internal ralph-stop-hook error (exit ${exit_code}). Stop blocked to preserve Ralph state; inspect session JSON and logs."
+  printf '{"decision":"block","reason":"%s"}\n' "$reason"
+  exit 0
+}
+
+trap fail_closed_stop ERR
 
 # === JSONL LOGGING ===
 COMPLETIONS_FILE=""
@@ -128,7 +145,7 @@ fi
 
 # === ALLOW EXIT FOR TERMINAL STATES ONLY ===
 case "$STATUS" in
-    merged|verified_passed|failed)
+    merged|verified_passed|verified_failed|worker_complete|failed)
         exit 0
         ;;
 esac
@@ -191,10 +208,5 @@ NEW_ITERATION=$((ITERATION + 1))
 jq '.iteration = '"$NEW_ITERATION"' | .updated_at = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' \
     "$SESSION_FILE" > "${SESSION_FILE}.tmp" && mv "${SESSION_FILE}.tmp" "$SESSION_FILE"
 
-# Block exit and provide reason
-cat << EOF
-{
-  "decision": "block",
-  "reason": "Ralph iteration $NEW_ITERATION of $MAX_ITERATIONS for bead $BEAD_ID. Work is not complete. Continue working on the bead. Include '<promise>$COMPLETION_PROMISE</promise>' in your response when verification is complete."
-}
-EOF
+# Block exit and provide reason (JSON-safe via jq)
+block_with_reason "Ralph iteration $NEW_ITERATION of $MAX_ITERATIONS for bead $BEAD_ID. Work is not complete. Continue working on the bead. Include '<promise>$COMPLETION_PROMISE</promise>' in your response when verification is complete."

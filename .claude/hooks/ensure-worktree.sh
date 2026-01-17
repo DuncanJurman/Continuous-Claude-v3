@@ -22,20 +22,62 @@
 # 7. Return updatedInput with worktree + memory context prepended
 #
 
-set -euo pipefail
+set -Eeuo pipefail
+
+HOOK_EVENT_NAME="PreToolUse"
+FAIL_CLOSED_ALREADY=0
+
+fail_closed() {
+    local exit_code=$?
+    if [ "${FAIL_CLOSED_ALREADY:-0}" = "1" ]; then
+        exit 0
+    fi
+    FAIL_CLOSED_ALREADY=1
+
+    if [ -n "${LOG_FILE:-}" ]; then
+        printf '[%s] ERROR: ensure-worktree failed (exit %s)\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            "$exit_code" >> "$LOG_FILE" 2>/dev/null || true
+    fi
+
+    # Fail closed: deny the tool call with valid JSON, per ClaudeDocs/Hooks.md.
+    local reason="Internal ensure-worktree error (exit ${exit_code}). Check .claude/state/god-ralph/logs/worktree-hook.log."
+    printf '{"hookSpecificOutput":{"hookEventName":"%s","permissionDecision":"deny","permissionDecisionReason":"%s"}}\n' \
+        "$HOOK_EVENT_NAME" \
+        "$reason"
+    exit 0
+}
+
+trap fail_closed ERR
+
+allow_without_modification() {
+    if command -v jq >/dev/null 2>&1; then
+        jq -n --arg ev "$HOOK_EVENT_NAME" '{hookSpecificOutput:{hookEventName:$ev,permissionDecision:"allow"}}'
+    else
+        printf '{"hookSpecificOutput":{"hookEventName":"%s","permissionDecision":"allow"}}\n' "$HOOK_EVENT_NAME"
+    fi
+    exit 0
+}
 
 # === HELPER: Return deny JSON (standardized error handling) ===
 deny_with_reason() {
     local reason="$1"
-    cat << EOF
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PreToolUse",
-    "permissionDecision": "deny",
-    "permissionDecisionReason": "$reason"
-  }
-}
-EOF
+    if [ -n "${LOG_FILE:-}" ]; then
+        printf '[%s] DENY: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$reason" >> "$LOG_FILE" 2>/dev/null || true
+    fi
+
+    if command -v jq >/dev/null 2>&1; then
+        jq -n --arg ev "$HOOK_EVENT_NAME" --arg r "$reason" '{
+          hookSpecificOutput: {
+            hookEventName: $ev,
+            permissionDecision: "deny",
+            permissionDecisionReason: $r
+          }
+        }'
+    else
+        # Last-resort deny: keep JSON valid (no interpolation).
+        printf '{"hookSpecificOutput":{"hookEventName":"%s","permissionDecision":"deny","permissionDecisionReason":"Denied"}}\n' "$HOOK_EVENT_NAME"
+    fi
     exit 0  # Exit 0 with JSON, not exit 2
 }
 
@@ -47,8 +89,7 @@ TOOL_INPUT=$(echo "$INPUT" | jq '.tool_input // {}')
 # Only process Task tool calls
 if [ "$TOOL_NAME" != "Task" ]; then
     # Not a Task tool call, allow without modification
-    echo '{"hookSpecificOutput": {"permissionDecision": "allow"}}'
-    exit 0
+    allow_without_modification
 fi
 
 # Get subagent type
@@ -57,8 +98,7 @@ SUBAGENT_TYPE=$(echo "$TOOL_INPUT" | jq -r '.subagent_type // empty')
 # Only process ralph-worker spawns
 if [ "$SUBAGENT_TYPE" != "ralph-worker" ]; then
     # Not a ralph-worker, allow without modification
-    echo '{"hookSpecificOutput": {"permissionDecision": "allow"}}'
-    exit 0
+    allow_without_modification
 fi
 
 # === PROJECT ROOT DETECTION ===
@@ -129,6 +169,12 @@ fi
 
 log_msg "Extracted bead_id: $BEAD_ID"
 
+# Defensive: prevent surprising branch/path names from malformed BEAD_ID.
+if ! echo "$BEAD_ID" | grep -Eq '^[A-Za-z0-9._-]+$'; then
+    log_msg "ERROR: Invalid BEAD_ID extracted: $BEAD_ID"
+    deny_with_reason "Invalid BEAD_ID '$BEAD_ID'. Use only letters, numbers, '.', '_', and '-'."
+fi
+
 # === READ PER-BEAD SPAWN QUEUE FILE ===
 QUEUE_FILE="$QUEUE_DIR/$BEAD_ID.json"
 if [ ! -f "$QUEUE_FILE" ]; then
@@ -163,8 +209,7 @@ if [ "$WORKTREE_POLICY" = "none" ]; then
     # No worktree needed, just clean up queue file and allow
     log_msg "Policy 'none': passing through without worktree"
     rm -f "$QUEUE_FILE"
-    echo '{"hookSpecificOutput": {"permissionDecision": "allow"}}'
-    exit 0
+    allow_without_modification
 fi
 
 # Policy "required" or "optional" - proceed with worktree creation
@@ -203,16 +248,26 @@ if [ -f "$SESSION_FILE" ]; then
     SESSION_ORIGINAL_PROMPT=$(jq -r '.original_prompt // empty' "$SESSION_FILE")
 fi
 
+if [ "$SPAWN_MODE" = "resume" ] && [ "$SESSION_EXISTS" != "true" ]; then
+    deny_with_reason "spawn_mode=resume requires an existing session for $BEAD_ID. Use spawn_mode=new to create one."
+fi
+
+if [ "$SPAWN_MODE" = "repair" ] && [ "$SESSION_EXISTS" != "true" ]; then
+    deny_with_reason "spawn_mode=repair requires an existing session for $BEAD_ID. Use spawn_mode=new to create one."
+fi
+
 if [ "$SESSION_EXISTS" = "true" ] && [ "$SPAWN_MODE" = "new" ]; then
     SPAWN_MODE="resume"
 fi
 
-if [ "$SESSION_EXISTS" = "true" ] && [ "$SESSION_STATUS" = "verified_failed" ] && [ "$SPAWN_MODE" != "restart" ]; then
-    deny_with_reason "Session for $BEAD_ID is verified_failed. Respawn with spawn_mode=restart to continue."
-fi
-
 if [ "$SESSION_EXISTS" = "true" ] && [ "$SPAWN_MODE" != "restart" ]; then
     case "$SESSION_STATUS" in
+        failed)
+            deny_with_reason "Session for $BEAD_ID is failed. Respawn with spawn_mode=restart to reset the loop or create a fix-bead."
+            ;;
+        verified_failed)
+            deny_with_reason "Session for $BEAD_ID is verified_failed. Respawn with spawn_mode=restart to continue."
+            ;;
         worker_complete|verified_passed|merged)
             deny_with_reason "Session for $BEAD_ID is $SESSION_STATUS. Use spawn_mode=restart to reopen or create a fix-bead."
             ;;
@@ -230,7 +285,7 @@ normalize_path() {
 
 # === QUEUE VS SESSION AUTHORITY ===
 if [ "$SESSION_EXISTS" = "true" ] && [ "$SPAWN_MODE" != "restart" ]; then
-    # Reject parameter drift unless restart/repair
+    # Reject parameter drift unless restart
     QUEUE_WORKTREE_FULL=$(normalize_path "$WORKTREE_PATH")
     SESSION_WORKTREE_FULL="$SESSION_WORKTREE_PATH"
     if [ -n "$SESSION_WORKTREE_FULL" ] && [[ "$SESSION_WORKTREE_FULL" != /* ]]; then
@@ -455,79 +510,79 @@ if [ "$SESSION_EXISTS" = "true" ]; then
         NEW_ITERATION=0
     fi
 
-    jq \
-      --arg bead_id "$BEAD_ID" \
-      --arg worktree_path "$FULL_WORKTREE_PATH" \
-      --arg branch "$BRANCH_NAME" \
-      --arg base_ref "$BASE_REF" \
-      --arg base_sha "$BASE_SHA" \
-      --arg status "$NEW_STATUS" \
-      --arg completion_promise "$COMPLETION_PROMISE" \
-      --arg updated_at "$NOW_TS" \
-      --arg last_spawned_at "$NOW_TS" \
-      --arg spawn_mode "$SPAWN_MODE" \
-      --arg last_prompt "$PROMPT" \
-      --argjson iteration "$NEW_ITERATION" \
-      --argjson max_iterations "$MAX_ITERATIONS" \
-      --argjson spawn_count "$SPAWN_COUNT" \
-      --arg created_at "$NOW_TS" \
-      --arg original_prompt "$PROMPT" \
-      '
-        .bead_id = $bead_id
-        | .worktree_path = $worktree_path
-        | .branch = $branch
-        | .base_ref = $base_ref
-        | .base_sha = $base_sha
-        | .status = $status
-        | .iteration = $iteration
-        | .max_iterations = $max_iterations
-        | .completion_promise = $completion_promise
-        | .updated_at = $updated_at
-        | .last_spawned_at = $last_spawned_at
-        | .spawn_mode = $spawn_mode
-        | .spawn_count = $spawn_count
-        | .last_prompt = $last_prompt
-        | .created_at = (if .created_at then .created_at else $created_at end)
-        | .original_prompt = (if .original_prompt then .original_prompt else $original_prompt end)
-      ' "$SESSION_FILE" > "${SESSION_FILE}.tmp" && mv "${SESSION_FILE}.tmp" "$SESSION_FILE"
+	    jq \
+	      --arg bead_id "$BEAD_ID" \
+	      --arg worktree_path "$FULL_WORKTREE_PATH" \
+	      --arg branch "$BRANCH_NAME" \
+	      --arg base_ref "$BASE_REF" \
+	      --arg base_sha "$BASE_SHA" \
+	      --arg status "$NEW_STATUS" \
+	      --arg completion_promise "$COMPLETION_PROMISE" \
+	      --arg updated_at "$NOW_TS" \
+	      --arg last_spawned_at "$NOW_TS" \
+	      --arg spawn_mode "$SPAWN_MODE" \
+	      --arg last_prompt "$PROMPT" \
+	      --arg iteration "$NEW_ITERATION" \
+	      --arg max_iterations "$MAX_ITERATIONS" \
+	      --arg spawn_count "$SPAWN_COUNT" \
+	      --arg created_at "$NOW_TS" \
+	      --arg original_prompt "$PROMPT" \
+	      '
+	        .bead_id = $bead_id
+	        | .worktree_path = $worktree_path
+	        | .branch = $branch
+	        | .base_ref = $base_ref
+	        | .base_sha = $base_sha
+	        | .status = $status
+	        | .iteration = ($iteration | tonumber)
+	        | .max_iterations = ($max_iterations | tonumber)
+	        | .completion_promise = $completion_promise
+	        | .updated_at = $updated_at
+	        | .last_spawned_at = $last_spawned_at
+	        | .spawn_mode = $spawn_mode
+	        | .spawn_count = ($spawn_count | tonumber)
+	        | .last_prompt = $last_prompt
+	        | .created_at = (if .created_at then .created_at else $created_at end)
+	        | .original_prompt = (if .original_prompt then .original_prompt else $original_prompt end)
+	      ' "$SESSION_FILE" > "${SESSION_FILE}.tmp" && mv "${SESSION_FILE}.tmp" "$SESSION_FILE"
 
     log_msg "Updated session file: $SESSION_FILE"
 else
-    jq -n \
-      --arg bead_id "$BEAD_ID" \
-      --arg worktree_path "$FULL_WORKTREE_PATH" \
-      --arg branch "$BRANCH_NAME" \
-      --arg base_ref "$BASE_REF" \
-      --arg base_sha "$BASE_SHA" \
-      --arg status "in_progress" \
-      --arg completion_promise "$COMPLETION_PROMISE" \
-      --arg created_at "$NOW_TS" \
-      --arg updated_at "$NOW_TS" \
-      --arg last_spawned_at "$NOW_TS" \
-      --arg spawn_mode "$SPAWN_MODE" \
-      --arg last_prompt "$PROMPT" \
-      --arg original_prompt "$PROMPT" \
-      --argjson iteration 0 \
-      --argjson max_iterations "$MAX_ITERATIONS" \
-      --argjson spawn_count 1 \
-      '{
-        bead_id: $bead_id,
-        worktree_path: $worktree_path,
-        branch: $branch,
-        base_ref: $base_ref,
-        base_sha: $base_sha,
-        status: $status,
-        iteration: $iteration,
-        max_iterations: $max_iterations,
-        completion_promise: $completion_promise,
-        created_at: $created_at,
-        updated_at: $updated_at,
-        last_spawned_at: $last_spawned_at,
-        spawn_mode: $spawn_mode,
-        spawn_count: $spawn_count,
-        original_prompt: $original_prompt,
-        last_prompt: $last_prompt
-      }' > "$SESSION_FILE"
+	    jq -n \
+	      --arg bead_id "$BEAD_ID" \
+	      --arg worktree_path "$FULL_WORKTREE_PATH" \
+	      --arg branch "$BRANCH_NAME" \
+	      --arg base_ref "$BASE_REF" \
+	      --arg base_sha "$BASE_SHA" \
+	      --arg status "in_progress" \
+	      --arg completion_promise "$COMPLETION_PROMISE" \
+	      --arg created_at "$NOW_TS" \
+	      --arg updated_at "$NOW_TS" \
+	      --arg last_spawned_at "$NOW_TS" \
+	      --arg spawn_mode "$SPAWN_MODE" \
+	      --arg last_prompt "$PROMPT" \
+	      --arg original_prompt "$PROMPT" \
+	      --arg iteration "0" \
+	      --arg max_iterations "$MAX_ITERATIONS" \
+	      --arg spawn_count "1" \
+	      '{
+	        bead_id: $bead_id,
+	        worktree_path: $worktree_path,
+	        branch: $branch,
+	        base_ref: $base_ref,
+	        base_sha: $base_sha,
+	        status: $status,
+	        iteration: ($iteration | tonumber),
+	        max_iterations: ($max_iterations | tonumber),
+	        completion_promise: $completion_promise,
+	        created_at: $created_at,
+	        updated_at: $updated_at,
+	        last_spawned_at: $last_spawned_at,
+	        spawn_mode: $spawn_mode,
+	        spawn_count: ($spawn_count | tonumber),
+	        original_prompt: $original_prompt,
+	        last_prompt: $last_prompt
+	      }' > "$SESSION_FILE"
 
     log_msg "Created session file: $SESSION_FILE"
 fi

@@ -319,6 +319,30 @@ echo "Hooks (installed):"
 [ -f "$HOME/.claude/settings.json" ] && echo "  settings.json: present" || echo "  settings.json: MISSING"
 
 echo ""
+echo "Hook Versions (repo vs installed):"
+
+# Compare repo-pinned hooks (in this project) to the installed hooks actually executed by settings.json.
+if [ -f ".claude/hooks/ensure-worktree.sh" ] && [ -f "$HOME/.claude/hooks/ensure-worktree.sh" ]; then
+  if cmp -s ".claude/hooks/ensure-worktree.sh" "$HOME/.claude/hooks/ensure-worktree.sh"; then
+    echo "  [OK] ensure-worktree.sh: installed matches repo"
+  else
+    echo "  [WARN] ensure-worktree.sh: installed differs from repo (run update/sync)"
+  fi
+else
+  echo "  [WARN] ensure-worktree.sh: missing repo or installed file (cannot compare)"
+fi
+
+if [ -f ".claude/hooks/ralph-stop-hook.sh" ] && [ -f "$HOME/.claude/hooks/ralph-stop-hook.sh" ]; then
+  if cmp -s ".claude/hooks/ralph-stop-hook.sh" "$HOME/.claude/hooks/ralph-stop-hook.sh"; then
+    echo "  [OK] ralph-stop-hook.sh: installed matches repo"
+  else
+    echo "  [WARN] ralph-stop-hook.sh: installed differs from repo (run update/sync)"
+  fi
+else
+  echo "  [WARN] ralph-stop-hook.sh: missing repo or installed file (cannot compare)"
+fi
+
+echo ""
 echo "Overall: HEALTHY"
 ```
 
