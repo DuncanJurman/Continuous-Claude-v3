@@ -49,8 +49,15 @@ else
   exit 1
 fi
 
-# 2. Verify bead context from marker file
-BEAD_ID=$(cat .claude/state/god-ralph/current-bead 2>/dev/null || echo "")
+# 2. Resolve worktree root + bead context (cwd-independent)
+WORKTREE_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
+if [ -z "$WORKTREE_ROOT" ]; then
+  echo "ERROR: Could not resolve worktree root."
+  exit 1
+fi
+
+MARKER_FILE="$WORKTREE_ROOT/.claude/state/god-ralph/current-bead"
+BEAD_ID=$(cat "$MARKER_FILE" 2>/dev/null || echo "")
 EXPECTED_BRANCH="ralph/${BEAD_ID}"
 CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD)
 
@@ -63,7 +70,7 @@ fi
 # 3. Confirm working directory and session file
 echo "Working directory: $(pwd)"
 echo "Bead ID: $BEAD_ID"
-echo "Session file: .claude/state/god-ralph/sessions/$BEAD_ID.json"
+echo "Session file: $WORKTREE_ROOT/.claude/state/god-ralph/sessions/$BEAD_ID.json"
 ```
 
 **If verification fails**, do NOT proceed with file modifications. Report the issue immediately.
@@ -315,28 +322,19 @@ While working, you may discover bugs or improvements in existing code. **Do NOT 
 
 Focus on completing your bead. Discovered issues can become future beads.
 
-## Persist Learnings (Do This Yourself)
+## Learnings Handoff (Canonical)
 
-Subagents cannot spawn subagents. When you complete a bead or discover something non-obvious, persist learnings directly:
+Ralph learnings are persisted **after merge** by the orchestrator via `ralph-learner`. Do NOT run `store_learning.py` directly unless explicitly instructed.
 
-### Step 1: Classify
-Pick one: `WORKING_SOLUTION`, `ERROR_FIX`, `CODEBASE_PATTERN`, `ARCHITECTURAL_DECISION`, `FAILED_APPROACH`.
+When you finish a bead, include a `LEARNINGS:` block in your **final response** (the same message that includes the completion promise):
 
-### Step 2: Store to Memory
-```bash
-cd "$CLAUDE_PROJECT_DIR/opc" && PYTHONPATH=. uv run python scripts/core/store_learning.py \
-  --session-id "$BEAD_ID" \
-  --type <TYPE> \
-  --content "<concise learning>" \
-  --context "<area it relates to>" \
-  --tags "tag1,tag2,tag3" \
-  --confidence high|medium|low
+```
+LEARNINGS:
+- type: WORKING_SOLUTION
+  content: "<concise learning>"
+  context: "<area it relates to>"
+  tags: "tag1,tag2,tag3"
+  confidence: high|medium|low
 ```
 
-### Step 3: Update CLAUDE.md (only if durable)
-Only add to CLAUDE.md if it is **durable**, **specific**, and **non-obvious**. Use the worktree CLAUDE.md if `WORKTREE_PATH` is known; otherwise use `./CLAUDE.md`.
-
-Append under `## Learnings & Gotchas`:
-```
-- [YYYY-MM-DD] <actionable learning> (Source: <bead-id>)
-```
+If there are no learnings, omit the block. On restart/resume, include only new learnings to avoid duplication.

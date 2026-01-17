@@ -125,7 +125,7 @@ User Request: "Build a user settings page"
 │  → non-overlapping beads execute in PARALLEL                  │
 │  → each ralph-worker runs in isolated git worktree            │
 │  → verify-then-merge: each bead verified before merge to main │
-│  → ralph-workers persist insights to memory + CLAUDE.md       │
+│  → ralph-learner persists insights to memory + CLAUDE.md      │
 └───────────────────────────────────────────────────────────────┘
         │
         ▼
@@ -140,7 +140,7 @@ User Request: "Build a user settings page"
 | **Safe merges** | Each bead verified BEFORE merging to main |
 | **Clear failures** | If a bead fails, you know exactly which one and why |
 | **Autonomous** | Ralph workers complete beads without human intervention |
-| **Learnings captured** | ralph-workers persist insights from every completed bead |
+| **Learnings captured** | ralph-learner persists insights post-merge |
 
 ---
 
@@ -309,7 +309,7 @@ Ralph Worker completes bead
 | **orchestrator** | Main-thread coordinator invoked via `/ralph` (not a subagent) |
 | **ralph-worker** | Ephemeral bead executor using TDD workflow |
 | **verification-ralph** | Runs acceptance criteria before merge |
-| **ralph-learner** | Optional helper; ralph-worker persists learnings directly |
+| **ralph-learner** | Post-merge learning extraction helper |
 
 ### State Management
 
@@ -867,7 +867,7 @@ Agents are specialized AI workers spawned via the Task tool. Located in `.claude
 - **orchestrator**: Main-thread coordinator (invoked via `/ralph`) managing parallel Ralph workers. Handles spawning, verification, merging, and recovery.
 - **ralph-worker**: Ephemeral bead executor using TDD workflow. Completes one bead in isolated worktree then exits.
 - **verification-ralph**: Runs acceptance criteria in worktree before merge. Reports pass/fail with severity levels.
-- **ralph-learner**: Optional helper; ralph-worker persists learnings to memory + CLAUDE.md directly.
+- **ralph-learner**: Post-merge learning extraction helper (canonical path).
 
 **Orchestrators (2)**
 - **maestro**: Multi-agent coordination with patterns (Pipeline, Swarm, Jury)

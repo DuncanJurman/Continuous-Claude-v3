@@ -216,7 +216,9 @@ Hooks fire automatically at specific lifecycle points. Users don't invoke them d
 |-------|------|----------|---------------|
 | 1 | tldr-context-inject | prompt (prepend) | - |
 | 2 | arch-context-inject | prompt (prepend) | tldr context |
-| 3 | ensure-worktree | prompt (prepend) + cwd | tldr + arch context |
+| 3 | ensure-worktree | prompt (prepend) | tldr + arch context |
+
+**Note:** Task does not support a `working_directory` field; ensure-worktree embeds `cd <worktree>` instructions instead of setting cwd.
 
 ### PreToolUse Hooks
 
@@ -264,7 +266,7 @@ Hooks fire automatically at specific lifecycle points. Users don't invoke them d
 | **orchestrator** | opus | Main-thread coordinator invoked via `/ralph` (not a subagent). Handles spawning, verification, merging, and recovery. |
 | **ralph-worker** | opus | Ephemeral bead executor. Completes ONE bead using TDD workflow in isolated worktree, then exits. |
 | **verification-ralph** | sonnet | Runs acceptance criteria in worktree BEFORE merge. Reports pass/fail with severity levels. |
-| **ralph-learner** | sonnet | Optional helper; ralph-worker persists learnings to memory + CLAUDE.md directly. |
+| **ralph-learner** | sonnet | Invoked post-merge to persist learnings from the worker’s LEARNINGS block. |
 
 ### Bead Management Agents
 
@@ -626,7 +628,7 @@ User: "build user settings page"
          |
          v
 +-------------------+
-| learnings         |  ralph-worker stores patterns for future sessions
+| learnings         |  ralph-learner stores patterns post-merge for future sessions
 +-------------------+    stores in archival_memory
 ```
 
@@ -677,7 +679,7 @@ ralph_spec:
 | `.claude/agents/orchestrator.md` | Main-thread /ralph persona (do not spawn as subagent) |
 | `.claude/agents/ralph-worker.md` | Parallel bead executor |
 | `.claude/agents/verification-ralph.md` | Bead verification agent |
-| `.claude/agents/ralph-learner.md` | Optional pattern extraction helper |
+| `.claude/agents/ralph-learner.md` | Post-merge learning extraction helper (canonical path) |
 | `.claude/agents/bead-decomposer.md` | Plan to bead decomposition |
 | `.claude/agents/bead-validator.md` | Bead self-containment validation |
 

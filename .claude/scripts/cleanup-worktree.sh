@@ -188,7 +188,7 @@ cleanup_all() {
             fi
 
             case "$status" in
-                completed|failed)
+                merged|completed|failed)
                     echo ""
                     echo "Cleaning $bead_id (status: $status)..."
                     cleanup_single "$bead_id"

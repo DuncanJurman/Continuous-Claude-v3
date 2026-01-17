@@ -28,7 +28,9 @@ Ralph workers are ephemeral - they complete one bead and die. You ensure their h
 
 ## When You're Called
 
-Ralph workers invoke you after completing a bead when they've discovered:
+The orchestrator invokes you **after merge** to persist learnings extracted from the worker's final response. This is the canonical learning pathway.
+
+You are called when the worker has discovered:
 - Non-obvious solutions (took multiple attempts to figure out)
 - Error fixes that others would waste time on
 - Codebase patterns not documented elsewhere
@@ -42,7 +44,12 @@ Your prompt will include:
 BEAD_ID: <bead-identifier>
 WORKTREE_PATH: <path-to-worktree>
 
-<learning content - what was discovered>
+LEARNINGS:
+- type: WORKING_SOLUTION|ERROR_FIX|CODEBASE_PATTERN|ARCHITECTURAL_DECISION|FAILED_APPROACH
+  content: "<concise learning>"
+  context: "<area it relates to>"
+  tags: "tag1,tag2,tag3"
+  confidence: high|medium|low
 ```
 
 ## Step 1: Classify the Learning

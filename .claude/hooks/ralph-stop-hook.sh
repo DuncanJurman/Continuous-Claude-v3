@@ -33,47 +33,64 @@ log_completion() {
 
 # === INPUT PARSING ===
 INPUT=$(cat)
-STOP_HOOK_ACTIVE=$(echo "$INPUT" | jq -r '.stop_hook_active // false')
 TRANSCRIPT_PATH=$(echo "$INPUT" | jq -r '.transcript_path // empty')
 
-# === PREVENT INFINITE LOOPS ===
-if [ "$STOP_HOOK_ACTIVE" = "true" ]; then
-    # Already in a stop hook continuation, allow exit
+block_with_reason() {
+    local reason="$1"
+    jq -n --arg r "$reason" '{decision: "block", reason: $r}'
     exit 0
-fi
+}
+
+# === RESOLVE WORKTREE/PROJECT ROOTS (CWD-INDEPENDENT) ===
+PROJECT_ROOT="${CLAUDE_PROJECT_DIR:-}"
+WORKTREE_ROOT=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
 
 # === FIND BEAD_ID FROM MARKER FILE ===
-# The hook runs in the worktree context (or main repo if testing)
-MARKER_FILE=".claude/state/god-ralph/current-bead"
+BEAD_ID=""
+MARKER_FILE=""
 
-if [ ! -f "$MARKER_FILE" ]; then
-    # Not in a worktree context with proper setup, allow exit
-    # This can happen during testing or if session wasn't properly initialized
-    exit 0
+if [ -n "$WORKTREE_ROOT" ] && [ -f "$WORKTREE_ROOT/.claude/state/god-ralph/current-bead" ]; then
+    MARKER_FILE="$WORKTREE_ROOT/.claude/state/god-ralph/current-bead"
+elif [ -n "$PROJECT_ROOT" ] && [ -f "$PROJECT_ROOT/.claude/state/god-ralph/current-bead" ]; then
+    MARKER_FILE="$PROJECT_ROOT/.claude/state/god-ralph/current-bead"
 fi
 
-BEAD_ID=$(cat "$MARKER_FILE" 2>/dev/null || echo "")
-
-if [ -z "$BEAD_ID" ]; then
-    echo "Warning: Empty bead_id in marker file" >&2
-    exit 0
+if [ -n "$MARKER_FILE" ]; then
+    BEAD_ID=$(cat "$MARKER_FILE" 2>/dev/null || echo "")
 fi
 
-# === FIND SESSION FILE ===
-# Try symlinked sessions directory first (worktree context)
-SESSION_FILE=".claude/state/god-ralph/sessions/$BEAD_ID.json"
-
-if [ ! -f "$SESSION_FILE" ]; then
-    # Fallback: try main repo location via git
-    MAIN_REPO=$(git rev-parse --show-toplevel 2>/dev/null || echo "")
-    if [ -n "$MAIN_REPO" ]; then
-        SESSION_FILE="$MAIN_REPO/.claude/state/god-ralph/sessions/$BEAD_ID.json"
+# === FALLBACK: PARSE BEAD_ID FROM TRANSCRIPT ===
+if [ -z "$BEAD_ID" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIPT_PATH" ]; then
+    BEAD_LINE=$(tail -200 "$TRANSCRIPT_PATH" 2>/dev/null | \
+        jq -rs '
+          [ .[]
+            | .content
+            | if type == "string" then .
+              elif type == "array" then (map(.text? // "") | join(""))
+              else "" end
+          ]
+          | map(select(test("BEAD_ID\\s*:")))
+          | last // empty
+        ' 2>/dev/null || echo "")
+    if [ -n "$BEAD_LINE" ]; then
+        BEAD_ID=$(echo "$BEAD_LINE" | sed -nE 's/.*BEAD_ID[[:space:]]*:[[:space:]]*([A-Za-z0-9._-]+).*/\1/p')
     fi
 fi
 
-if [ ! -f "$SESSION_FILE" ]; then
-    echo "Error: Session file not found for $BEAD_ID" >&2
-    exit 0  # Allow exit on error
+if [ -z "$BEAD_ID" ]; then
+    block_with_reason "Ralph stop hook could not resolve BEAD_ID (marker missing, transcript parse failed). Run from worktree root or ensure queue/session initialization."
+fi
+
+# === FIND SESSION FILE (CWD-INDEPENDENT) ===
+SESSION_FILE=""
+if [ -n "$WORKTREE_ROOT" ] && [ -f "$WORKTREE_ROOT/.claude/state/god-ralph/sessions/$BEAD_ID.json" ]; then
+    SESSION_FILE="$WORKTREE_ROOT/.claude/state/god-ralph/sessions/$BEAD_ID.json"
+elif [ -n "$PROJECT_ROOT" ] && [ -f "$PROJECT_ROOT/.claude/state/god-ralph/sessions/$BEAD_ID.json" ]; then
+    SESSION_FILE="$PROJECT_ROOT/.claude/state/god-ralph/sessions/$BEAD_ID.json"
+fi
+
+if [ -z "$SESSION_FILE" ]; then
+    block_with_reason "Ralph stop hook could not find session for $BEAD_ID. Ensure the bead was spawned via /ralph (queue file written) and the worktree exists."
 fi
 
 # === RESOLVE COMPLETIONS LOG PATH (MAIN REPO) ===
@@ -102,14 +119,19 @@ STATUS=$(jq -r '.status // "in_progress"' "$SESSION_FILE")
 
 # Validate iteration and max_iterations are numeric
 if ! [[ "$ITERATION" =~ ^[0-9]+$ ]] || ! [[ "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
-    echo "Error: Invalid iteration values in session file" >&2
-    exit 0
+    block_with_reason "Invalid iteration values in session file for $BEAD_ID. Fix session JSON or respawn with spawn_mode=restart."
 fi
 
-# === CHECK IF ALREADY COMPLETED ===
-if [ "$STATUS" = "completed" ] || [ "$STATUS" = "failed" ]; then
-    exit 0  # Allow exit
+if [ -z "$COMPLETION_PROMISE" ]; then
+    block_with_reason "Missing completion_promise for $BEAD_ID. Update session or queue file and respawn."
 fi
+
+# === ALLOW EXIT FOR TERMINAL STATES ONLY ===
+case "$STATUS" in
+    merged|verified_passed|failed)
+        exit 0
+        ;;
+esac
 
 # === CHECK MAX ITERATIONS ===
 if [ "$ITERATION" -ge "$MAX_ITERATIONS" ]; then
@@ -153,14 +175,14 @@ if [ -n "$COMPLETION_PROMISE" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIP
 fi
 
 if [ "$PROMISE_FOUND" = "true" ]; then
-    # Update status to completed
-    jq '.status = "completed" | .updated_at = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' \
+    # Update status to worker_complete (promise detected; awaiting verification/merge)
+    jq '.status = "worker_complete" | .updated_at = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' \
         "$SESSION_FILE" > "${SESSION_FILE}.tmp" && mv "${SESSION_FILE}.tmp" "$SESSION_FILE"
 
     # Log to JSONL
-    log_completion "$BEAD_ID" "completed" "$ITERATION" "promise_detected"
+    log_completion "$BEAD_ID" "worker_complete" "$ITERATION" "promise_detected"
 
-    echo "[god-ralph] Bead $BEAD_ID completed! Promise detected." >&2
+    echo "[god-ralph] Bead $BEAD_ID complete. Promise detected." >&2
     exit 0  # Allow exit - work complete!
 fi
 

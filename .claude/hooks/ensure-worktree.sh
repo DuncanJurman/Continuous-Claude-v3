@@ -138,10 +138,25 @@ fi
 
 WORKTREE_PATH=$(jq -r '.worktree_path // empty' "$QUEUE_FILE")
 WORKTREE_POLICY=$(jq -r '.worktree_policy // "none"' "$QUEUE_FILE")
+BASE_REF=$(jq -r '.base_ref // "main"' "$QUEUE_FILE")
 MAX_ITERATIONS=$(jq -r '.max_iterations // 10' "$QUEUE_FILE")
 COMPLETION_PROMISE=$(jq -r '.completion_promise // "BEAD COMPLETE"' "$QUEUE_FILE")
+SPAWN_MODE=$(jq -r '.spawn_mode // "new"' "$QUEUE_FILE")
 
-log_msg "Read spawn params: policy=$WORKTREE_POLICY, path=$WORKTREE_PATH, max_iter=$MAX_ITERATIONS"
+log_msg "Read spawn params: policy=$WORKTREE_POLICY, path=$WORKTREE_PATH, base_ref=$BASE_REF, max_iter=$MAX_ITERATIONS, spawn_mode=$SPAWN_MODE"
+
+# Validate numeric iterations and spawn mode
+if ! [[ "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
+    deny_with_reason "Invalid max_iterations '$MAX_ITERATIONS' for bead $BEAD_ID"
+fi
+
+case "$SPAWN_MODE" in
+    new|resume|restart|repair)
+        ;;
+    *)
+        deny_with_reason "Invalid spawn_mode '$SPAWN_MODE' for bead $BEAD_ID"
+        ;;
+esac
 
 # === WORKTREE POLICY CHECK ===
 if [ "$WORKTREE_POLICY" = "none" ]; then
@@ -158,6 +173,93 @@ if [ -z "$WORKTREE_PATH" ]; then
     WORKTREE_PATH=".worktrees/ralph-$BEAD_ID"
 fi
 
+# === SESSION LOOKUP (BEFORE WORKTREE CREATION) ===
+mkdir -p "$SESSIONS_DIR"
+SESSION_FILE="$SESSIONS_DIR/$BEAD_ID.json"
+SESSION_EXISTS=false
+
+SESSION_WORKTREE_PATH=""
+SESSION_BASE_REF=""
+SESSION_BASE_SHA=""
+SESSION_MAX_ITERATIONS=""
+SESSION_PROMISE=""
+SESSION_BRANCH=""
+SESSION_SPAWN_COUNT=""
+SESSION_STATUS=""
+SESSION_CREATED_AT=""
+SESSION_ORIGINAL_PROMPT=""
+
+if [ -f "$SESSION_FILE" ]; then
+    SESSION_EXISTS=true
+    SESSION_WORKTREE_PATH=$(jq -r '.worktree_path // empty' "$SESSION_FILE")
+    SESSION_BASE_REF=$(jq -r '.base_ref // empty' "$SESSION_FILE")
+    SESSION_BASE_SHA=$(jq -r '.base_sha // empty' "$SESSION_FILE")
+    SESSION_MAX_ITERATIONS=$(jq -r '.max_iterations // empty' "$SESSION_FILE")
+    SESSION_PROMISE=$(jq -r '.completion_promise // empty' "$SESSION_FILE")
+    SESSION_BRANCH=$(jq -r '.branch // empty' "$SESSION_FILE")
+    SESSION_SPAWN_COUNT=$(jq -r '.spawn_count // empty' "$SESSION_FILE")
+    SESSION_STATUS=$(jq -r '.status // empty' "$SESSION_FILE")
+    SESSION_CREATED_AT=$(jq -r '.created_at // empty' "$SESSION_FILE")
+    SESSION_ORIGINAL_PROMPT=$(jq -r '.original_prompt // empty' "$SESSION_FILE")
+fi
+
+if [ "$SESSION_EXISTS" = "true" ] && [ "$SPAWN_MODE" = "new" ]; then
+    SPAWN_MODE="resume"
+fi
+
+if [ "$SESSION_EXISTS" = "true" ] && [ "$SESSION_STATUS" = "verified_failed" ] && [ "$SPAWN_MODE" != "restart" ]; then
+    deny_with_reason "Session for $BEAD_ID is verified_failed. Respawn with spawn_mode=restart to continue."
+fi
+
+if [ "$SESSION_EXISTS" = "true" ] && [ "$SPAWN_MODE" != "restart" ]; then
+    case "$SESSION_STATUS" in
+        worker_complete|verified_passed|merged)
+            deny_with_reason "Session for $BEAD_ID is $SESSION_STATUS. Use spawn_mode=restart to reopen or create a fix-bead."
+            ;;
+    esac
+fi
+
+normalize_path() {
+    local p="$1"
+    if [[ "$p" = /* ]]; then
+        echo "$p"
+    else
+        echo "$PROJECT_ROOT/$p"
+    fi
+}
+
+# === QUEUE VS SESSION AUTHORITY ===
+if [ "$SESSION_EXISTS" = "true" ] && [ "$SPAWN_MODE" != "restart" ]; then
+    # Reject parameter drift unless restart/repair
+    QUEUE_WORKTREE_FULL=$(normalize_path "$WORKTREE_PATH")
+    SESSION_WORKTREE_FULL="$SESSION_WORKTREE_PATH"
+    if [ -n "$SESSION_WORKTREE_FULL" ] && [[ "$SESSION_WORKTREE_FULL" != /* ]]; then
+        SESSION_WORKTREE_FULL=$(normalize_path "$SESSION_WORKTREE_FULL")
+    fi
+    if [ -n "$SESSION_WORKTREE_FULL" ] && [ -n "$WORKTREE_PATH" ] && [ "$SESSION_WORKTREE_FULL" != "$QUEUE_WORKTREE_FULL" ]; then
+        deny_with_reason "Queue worktree_path ($WORKTREE_PATH) does not match existing session worktree_path ($SESSION_WORKTREE_FULL). Use spawn_mode=restart to override."
+    fi
+    if [ -n "$SESSION_BASE_REF" ] && [ -n "$BASE_REF" ] && [ "$SESSION_BASE_REF" != "$BASE_REF" ]; then
+        deny_with_reason "Queue base_ref ($BASE_REF) does not match existing session base_ref ($SESSION_BASE_REF). Use spawn_mode=restart to override."
+    fi
+    if [ -n "$SESSION_MAX_ITERATIONS" ] && [ -n "$MAX_ITERATIONS" ] && [ "$SESSION_MAX_ITERATIONS" != "$MAX_ITERATIONS" ]; then
+        deny_with_reason "Queue max_iterations ($MAX_ITERATIONS) does not match existing session max_iterations ($SESSION_MAX_ITERATIONS). Use spawn_mode=restart to override."
+    fi
+    if [ -n "$SESSION_PROMISE" ] && [ -n "$COMPLETION_PROMISE" ] && [ "$SESSION_PROMISE" != "$COMPLETION_PROMISE" ]; then
+        deny_with_reason "Queue completion_promise does not match existing session. Use spawn_mode=restart to override."
+    fi
+
+    # Prefer existing session values when resuming
+    WORKTREE_PATH="${SESSION_WORKTREE_PATH:-$WORKTREE_PATH}"
+    BASE_REF="${SESSION_BASE_REF:-$BASE_REF}"
+    MAX_ITERATIONS="${SESSION_MAX_ITERATIONS:-$MAX_ITERATIONS}"
+    COMPLETION_PROMISE="${SESSION_PROMISE:-$COMPLETION_PROMISE}"
+fi
+
+if ! [[ "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
+    deny_with_reason "Invalid max_iterations '$MAX_ITERATIONS' after session reconciliation for bead $BEAD_ID"
+fi
+
 # === CONSTRUCT FULL WORKTREE PATH ===
 if [[ "$WORKTREE_PATH" = /* ]]; then
     FULL_WORKTREE_PATH="$WORKTREE_PATH"
@@ -166,8 +268,53 @@ else
 fi
 
 BRANCH_NAME="ralph/$BEAD_ID"
+if [ -n "$SESSION_BRANCH" ] && [ "$SESSION_BRANCH" != "$BRANCH_NAME" ] && [ "$SPAWN_MODE" != "restart" ]; then
+    deny_with_reason "Existing session branch ($SESSION_BRANCH) does not match expected ($BRANCH_NAME). Use spawn_mode=restart to override."
+fi
+
+# Resolve base ref SHA for auditability
+BASE_SHA=$(git -C "$PROJECT_ROOT" rev-parse "$BASE_REF" 2>/dev/null || echo "")
+if [ -z "$BASE_SHA" ]; then
+    deny_with_reason "Failed to resolve base_ref '$BASE_REF'. Ensure it exists (e.g., 'main') and try again."
+fi
+
+if [ "$SESSION_EXISTS" = "true" ] && [ "$SPAWN_MODE" != "restart" ] && [ -n "$SESSION_BASE_SHA" ]; then
+    BASE_SHA="$SESSION_BASE_SHA"
+fi
 
 log_msg "Creating/reusing worktree at $FULL_WORKTREE_PATH"
+
+validate_worktree() {
+    local path="$1"
+    if [ ! -d "$path" ]; then
+        return 1
+    fi
+    if ! git -C "$path" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+        return 1
+    fi
+    local git_dir
+    git_dir=$(git -C "$path" rev-parse --git-dir 2>/dev/null || echo "")
+    if ! echo "$git_dir" | grep -q "/worktrees/"; then
+        return 1
+    fi
+    local branch
+    branch=$(git -C "$path" rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+    if [ "$branch" != "$BRANCH_NAME" ]; then
+        return 2
+    fi
+    if ! git -C "$PROJECT_ROOT" worktree list --porcelain | awk -v p="$path" '
+        $1 == "worktree" { wt=$2 }
+        wt == p { found=1 }
+        END { exit found ? 0 : 1 }
+    '; then
+        return 3
+    fi
+    return 0
+}
+
+if [ "$SESSION_EXISTS" = "true" ] && [ "$SPAWN_MODE" = "resume" ] && [ ! -d "$FULL_WORKTREE_PATH" ]; then
+    deny_with_reason "Session exists but worktree path is missing for $BEAD_ID. Use spawn_mode=repair or spawn_mode=restart."
+fi
 
 # === ATOMIC WORKTREE CREATION WITH LOCKING ===
 LOCK_FILE="$LOCK_DIR/worktree-$BEAD_ID.lock"
@@ -208,21 +355,48 @@ else
 fi
 
 if [ -d "$FULL_WORKTREE_PATH" ]; then
-    log_msg "Worktree already exists, reusing: $FULL_WORKTREE_PATH"
-else
-    # Create the worktree atomically
-    CURRENT_BRANCH=$(git -C "$PROJECT_ROOT" rev-parse --abbrev-ref HEAD)
-
-    if git -C "$PROJECT_ROOT" worktree add "$FULL_WORKTREE_PATH" -b "$BRANCH_NAME" "$CURRENT_BRANCH" >> "$LOG_FILE" 2>&1; then
-        log_msg "Created worktree with new branch: $BRANCH_NAME"
-    elif git -C "$PROJECT_ROOT" worktree add "$FULL_WORKTREE_PATH" "$BRANCH_NAME" >> "$LOG_FILE" 2>&1; then
-        log_msg "Created worktree with existing branch: $BRANCH_NAME"
+    if validate_worktree "$FULL_WORKTREE_PATH"; then
+        log_msg "Worktree already exists, reusing: $FULL_WORKTREE_PATH"
     else
-        WORKTREE_ERROR=$(git -C "$PROJECT_ROOT" worktree add "$FULL_WORKTREE_PATH" -b "$BRANCH_NAME" 2>&1 || true)
-        log_msg "ERROR: Failed to create worktree: $WORKTREE_ERROR"
-        rm -f "$QUEUE_FILE"
-        release_lock
-        deny_with_reason "Failed to create worktree for bead $BEAD_ID: $WORKTREE_ERROR"
+        case "$SPAWN_MODE" in
+            repair)
+                log_msg "Worktree validation failed; attempting repair for $FULL_WORKTREE_PATH"
+                git -C "$PROJECT_ROOT" worktree remove "$FULL_WORKTREE_PATH" --force >> "$LOG_FILE" 2>&1 || rm -rf "$FULL_WORKTREE_PATH"
+                ;;
+            restart)
+                log_msg "Worktree invalid; restart requested - removing $FULL_WORKTREE_PATH"
+                git -C "$PROJECT_ROOT" worktree remove "$FULL_WORKTREE_PATH" --force >> "$LOG_FILE" 2>&1 || rm -rf "$FULL_WORKTREE_PATH"
+                ;;
+            *)
+                release_lock
+                deny_with_reason "Worktree exists but is invalid or on wrong branch. Run /ralph gc or respawn with spawn_mode=repair."
+                ;;
+        esac
+    fi
+fi
+
+if [ ! -d "$FULL_WORKTREE_PATH" ]; then
+    # Create the worktree atomically from base_ref
+    if git -C "$PROJECT_ROOT" show-ref --verify --quiet "refs/heads/$BRANCH_NAME"; then
+        if git -C "$PROJECT_ROOT" worktree add "$FULL_WORKTREE_PATH" "$BRANCH_NAME" >> "$LOG_FILE" 2>&1; then
+            log_msg "Created worktree with existing branch: $BRANCH_NAME"
+        else
+            WORKTREE_ERROR=$(git -C "$PROJECT_ROOT" worktree add "$FULL_WORKTREE_PATH" "$BRANCH_NAME" 2>&1 || true)
+            log_msg "ERROR: Failed to add worktree with existing branch: $WORKTREE_ERROR"
+            rm -f "$QUEUE_FILE"
+            release_lock
+            deny_with_reason "Failed to create worktree for bead $BEAD_ID: $WORKTREE_ERROR"
+        fi
+    else
+        if git -C "$PROJECT_ROOT" worktree add "$FULL_WORKTREE_PATH" -b "$BRANCH_NAME" "$BASE_REF" >> "$LOG_FILE" 2>&1; then
+            log_msg "Created worktree with new branch: $BRANCH_NAME (base_ref=$BASE_REF)"
+        else
+            WORKTREE_ERROR=$(git -C "$PROJECT_ROOT" worktree add "$FULL_WORKTREE_PATH" -b "$BRANCH_NAME" "$BASE_REF" 2>&1 || true)
+            log_msg "ERROR: Failed to create worktree: $WORKTREE_ERROR"
+            rm -f "$QUEUE_FILE"
+            release_lock
+            deny_with_reason "Failed to create worktree for bead $BEAD_ID: $WORKTREE_ERROR"
+        fi
     fi
 fi
 
@@ -259,28 +433,104 @@ $RECALL_OUTPUT
     fi
 fi
 
-# === CREATE PER-BEAD SESSION FILE ===
-mkdir -p "$SESSIONS_DIR"
-SESSION_FILE="$SESSIONS_DIR/$BEAD_ID.json"
+# === CREATE / UPDATE PER-BEAD SESSION FILE ===
+NOW_TS="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 
-# Escape prompt for JSON storage
-ESCAPED_PROMPT=$(echo "$PROMPT" | jq -Rs .)
+if [ "$SESSION_EXISTS" = "true" ]; then
+    if [[ "$SESSION_SPAWN_COUNT" =~ ^[0-9]+$ ]]; then
+        SPAWN_COUNT=$((SESSION_SPAWN_COUNT + 1))
+    else
+        SPAWN_COUNT=1
+    fi
 
-cat > "$SESSION_FILE" << EOF
-{
-  "bead_id": "$BEAD_ID",
-  "worktree_path": "$FULL_WORKTREE_PATH",
-  "status": "in_progress",
-  "iteration": 0,
-  "max_iterations": $MAX_ITERATIONS,
-  "completion_promise": "$COMPLETION_PROMISE",
-  "created_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "updated_at": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
-  "original_prompt": $ESCAPED_PROMPT
-}
-EOF
+    if [ "$SPAWN_MODE" = "restart" ]; then
+        NEW_STATUS="in_progress"
+        NEW_ITERATION=0
+    else
+        NEW_STATUS=$(jq -r '.status // "in_progress"' "$SESSION_FILE")
+        NEW_ITERATION=$(jq -r '.iteration // 0' "$SESSION_FILE")
+    fi
 
-log_msg "Created session file: $SESSION_FILE"
+    if ! [[ "$NEW_ITERATION" =~ ^[0-9]+$ ]]; then
+        NEW_ITERATION=0
+    fi
+
+    jq \
+      --arg bead_id "$BEAD_ID" \
+      --arg worktree_path "$FULL_WORKTREE_PATH" \
+      --arg branch "$BRANCH_NAME" \
+      --arg base_ref "$BASE_REF" \
+      --arg base_sha "$BASE_SHA" \
+      --arg status "$NEW_STATUS" \
+      --arg completion_promise "$COMPLETION_PROMISE" \
+      --arg updated_at "$NOW_TS" \
+      --arg last_spawned_at "$NOW_TS" \
+      --arg spawn_mode "$SPAWN_MODE" \
+      --arg last_prompt "$PROMPT" \
+      --argjson iteration "$NEW_ITERATION" \
+      --argjson max_iterations "$MAX_ITERATIONS" \
+      --argjson spawn_count "$SPAWN_COUNT" \
+      --arg created_at "$NOW_TS" \
+      --arg original_prompt "$PROMPT" \
+      '
+        .bead_id = $bead_id
+        | .worktree_path = $worktree_path
+        | .branch = $branch
+        | .base_ref = $base_ref
+        | .base_sha = $base_sha
+        | .status = $status
+        | .iteration = $iteration
+        | .max_iterations = $max_iterations
+        | .completion_promise = $completion_promise
+        | .updated_at = $updated_at
+        | .last_spawned_at = $last_spawned_at
+        | .spawn_mode = $spawn_mode
+        | .spawn_count = $spawn_count
+        | .last_prompt = $last_prompt
+        | .created_at = (if .created_at then .created_at else $created_at end)
+        | .original_prompt = (if .original_prompt then .original_prompt else $original_prompt end)
+      ' "$SESSION_FILE" > "${SESSION_FILE}.tmp" && mv "${SESSION_FILE}.tmp" "$SESSION_FILE"
+
+    log_msg "Updated session file: $SESSION_FILE"
+else
+    jq -n \
+      --arg bead_id "$BEAD_ID" \
+      --arg worktree_path "$FULL_WORKTREE_PATH" \
+      --arg branch "$BRANCH_NAME" \
+      --arg base_ref "$BASE_REF" \
+      --arg base_sha "$BASE_SHA" \
+      --arg status "in_progress" \
+      --arg completion_promise "$COMPLETION_PROMISE" \
+      --arg created_at "$NOW_TS" \
+      --arg updated_at "$NOW_TS" \
+      --arg last_spawned_at "$NOW_TS" \
+      --arg spawn_mode "$SPAWN_MODE" \
+      --arg last_prompt "$PROMPT" \
+      --arg original_prompt "$PROMPT" \
+      --argjson iteration 0 \
+      --argjson max_iterations "$MAX_ITERATIONS" \
+      --argjson spawn_count 1 \
+      '{
+        bead_id: $bead_id,
+        worktree_path: $worktree_path,
+        branch: $branch,
+        base_ref: $base_ref,
+        base_sha: $base_sha,
+        status: $status,
+        iteration: $iteration,
+        max_iterations: $max_iterations,
+        completion_promise: $completion_promise,
+        created_at: $created_at,
+        updated_at: $updated_at,
+        last_spawned_at: $last_spawned_at,
+        spawn_mode: $spawn_mode,
+        spawn_count: $spawn_count,
+        original_prompt: $original_prompt,
+        last_prompt: $last_prompt
+      }' > "$SESSION_FILE"
+
+    log_msg "Created session file: $SESSION_FILE"
+fi
 
 # === CREATE WORKTREE MARKER AND SYMLINK ===
 WORKTREE_STATE_DIR="$FULL_WORKTREE_PATH/.claude/state/god-ralph"
@@ -310,6 +560,8 @@ Branch: $BRANCH_NAME
 Bead ID: $BEAD_ID
 Session file: $SESSION_FILE
 Max iterations: $MAX_ITERATIONS
+Base ref: $BASE_REF ($BASE_SHA)
+Spawn mode: $SPAWN_MODE
 
 CRITICAL: All your file operations should be relative to this worktree.
 Run 'cd $FULL_WORKTREE_PATH' before doing any work.

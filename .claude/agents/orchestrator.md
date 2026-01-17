@@ -88,6 +88,8 @@ For each bead in parallel group, spawn an isolated Ralph worker:
 bd_claim <bead-id>
 ```
 
+Use `ralph_spec` to populate `max_iterations` and `completion_promise` when available. Default `base_ref` to `main` unless explicitly overridden by the workflow.
+
 **Step 2: Write queue file (BEFORE Task call)**
 ```bash
 mkdir -p .claude/state/god-ralph/queue
@@ -96,8 +98,10 @@ cat > .claude/state/god-ralph/queue/<bead-id>.json << 'EOF'
 {
   "worktree_path": ".worktrees/ralph-<bead-id>",
   "worktree_policy": "required",
+  "base_ref": "main",
   "max_iterations": 50,
-  "completion_promise": "BEAD COMPLETE"
+  "completion_promise": "BEAD COMPLETE",
+  "spawn_mode": "new"
 }
 EOF
 ```
@@ -146,7 +150,7 @@ Poll session files to track Ralph progress:
 ```bash
 # Check single Ralph status
 jq -r '.status' .claude/state/god-ralph/sessions/<bead-id>.json
-# Returns: "in_progress" | "completed" | "failed"
+# Returns: "in_progress" | "worker_complete" | "verified_failed" | "verified_passed" | "merged" | "failed"
 
 # Check iteration count
 jq -r '.iteration' .claude/state/god-ralph/sessions/<bead-id>.json
@@ -159,8 +163,11 @@ done
 
 **Status Transitions**:
 ```
-in_progress → completed  (promise detected in output)
-in_progress → failed     (max iterations reached)
+in_progress     → worker_complete  (promise detected in output)
+worker_complete → verified_passed  (verification succeeded)
+worker_complete → verified_failed  (verification failed)
+verified_passed → merged           (ff-only merge complete)
+in_progress     → failed           (max iterations reached)
 ```
 
 **Monitoring Loop**:
@@ -168,10 +175,12 @@ in_progress → failed     (max iterations reached)
 WHILE any Ralph in_progress:
   FOR each bead_id:
     status = read session file
-    IF status == "completed":
-      → Add to merge queue
+    IF status == "worker_complete":
+      → Add to verify queue
     ELIF status == "failed":
       → Handle failure
+    ELIF status == "verified_failed":
+      → Respawn with spawn_mode=restart or create fix-bead
   WAIT 30 seconds
 ```
 
@@ -180,7 +189,16 @@ WHILE any Ralph in_progress:
 **Critical Pattern**: Always verify BEFORE merging to main.
 
 ```
-# 1. Spawn verification in the worktree
+# 1. Acquire merge lock (serialize rebase → verify → merge)
+LOCK_DIR=".claude/state/god-ralph/locks/merge.lock"
+mkdir "$LOCK_DIR" 2>/dev/null || { echo "Merge lock held, retry later"; exit 1; }
+
+# 2. Rebase onto main (verify what you will merge)
+git checkout ralph/<bead-id>
+git fetch origin main
+git rebase main
+
+# 3. Spawn verification in the worktree (post-rebase)
 Task(
   subagent_type="verification-ralph",
   prompt="Verify bead <bead-id> in worktree .worktrees/ralph-<bead-id>
@@ -189,22 +207,37 @@ Acceptance criteria:
 <criteria from bead spec>"
 )
 
-# 2. If verification passes, merge to main
+# 4. If verification passes, mark session verified_passed
+jq '.status = "verified_passed" | .updated_at = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' \
+  .claude/state/god-ralph/sessions/<bead-id>.json > /tmp/ralph-session.tmp \
+  && mv /tmp/ralph-session.tmp .claude/state/god-ralph/sessions/<bead-id>.json
+
+# 5. Merge to main (ff-only)
 git checkout main
 git merge --ff-only ralph/<bead-id>
 bd_close <bead-id>
+
+# 6. Release lock
+rmdir "$LOCK_DIR"
 ```
 
 **On Verification Failure (before merge)**:
 ```bash
 # Ralph's work is incomplete - keep bead open and worktree preserved
 bd_add_comment <bead-id> "Verification failed: <details>"
+
+# Mark session as verified_failed
+jq '.status = "verified_failed" | .updated_at = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' \
+  .claude/state/god-ralph/sessions/<bead-id>.json > /tmp/ralph-session.tmp \
+  && mv /tmp/ralph-session.tmp .claude/state/god-ralph/sessions/<bead-id>.json
+
+# Respawn same bead with spawn_mode=restart (or create fix-bead if repeated failures)
 bd_release <bead-id>
 ```
 
-**On Merge Conflict**:
+**On Rebase Conflict**:
 ```bash
-git merge --abort
+git rebase --abort
 
 # Create fix-bead via bead-decomposer
 Task(
@@ -214,6 +247,11 @@ Task(
          Conflicting files: <list>
          Original bead: <bead-id> '<title>'"
 )
+
+# Ensure parent bead is blocked by the fix-bead and closed together after fix-bead merge:
+#   bd dep add <parent-bead-id> <fix-bead-id>
+#   bd update <parent-bead-id> --status=blocked
+#   bd comments <parent-bead-id> --add "Blocked by fix-bead <fix-bead-id>"
 ```
 
 **On Merge Failure (not fast-forward)**:
@@ -226,6 +264,11 @@ Task(
          Conflicting files: <list>
          Original bead: <bead-id> '<title>'"
 )
+
+# Ensure parent bead is blocked by the fix-bead and closed together after fix-bead merge:
+#   bd dep add <parent-bead-id> <fix-bead-id>
+#   bd update <parent-bead-id> --status=blocked
+#   bd comments <parent-bead-id> --add "Blocked by fix-bead <fix-bead-id>"
 ```
 
 ### Phase 6: Cleanup
@@ -233,10 +276,18 @@ Task(
 After successful merge:
 
 ```bash
-# 1. Clean up worktree, branch, and session state
-.claude/scripts/cleanup-worktree.sh <bead-id>
+# 1. Mark session as merged
+jq '.status = "merged" | .updated_at = "'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"' \
+  .claude/state/god-ralph/sessions/<bead-id>.json > /tmp/ralph-session.tmp \
+  && mv /tmp/ralph-session.tmp .claude/state/god-ralph/sessions/<bead-id>.json
 
-# 2. Log completion (JSONL)
+# 2. Spawn ralph-learner to persist learnings (canonical path)
+Task(
+  subagent_type="ralph-learner",
+  prompt="BEAD_ID: <bead-id>\nWORKTREE_PATH: .worktrees/ralph-<bead-id>\n\nLEARNINGS:\n<copy from Ralph's final response>"
+)
+
+# 3. Log completion (JSONL)
 ITERATIONS=$(jq -r '.iteration // 0' .claude/state/god-ralph/sessions/<bead-id>.json 2>/dev/null || echo 0)
 jq -n \
   --arg ts "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
@@ -246,6 +297,9 @@ jq -n \
   --arg r "verify_then_merge" \
   '{timestamp: $ts, bead_id: $bid, status: $st, iterations: $it, reason: $r}' \
   >> .claude/state/god-ralph/completions.jsonl
+
+# 4. Clean up worktree, branch, and session state
+.claude/scripts/cleanup-worktree.sh <bead-id>
 ```
 
 **Repeat**: Return to Phase 1 until no ready beads remain.
@@ -284,10 +338,14 @@ jq -n \
   "bead_id": "beads-123",
   "worktree_path": "/full/path/to/.worktrees/ralph-beads-123",
   "branch": "ralph/beads-123",
+  "base_ref": "main",
+  "base_sha": "abc1234",
   "status": "in_progress",
   "iteration": 5,
   "max_iterations": 50,
   "completion_promise": "BEAD COMPLETE",
+  "spawn_mode": "resume",
+  "spawn_count": 2,
   "created_at": "2024-01-10T00:00:00Z",
   "updated_at": "2024-01-10T00:15:00Z"
 }
@@ -378,8 +436,10 @@ cat > .claude/state/god-ralph/queue/<bead-id>.json << 'EOF'
 {
   "worktree_path": ".worktrees/ralph-<bead-id>",
   "worktree_policy": "required",
+  "base_ref": "main",
   "max_iterations": 50,
-  "completion_promise": "BEAD COMPLETE"
+  "completion_promise": "BEAD COMPLETE",
+  "spawn_mode": "new"
 }
 EOF
 
@@ -405,7 +465,7 @@ Always stream output with prefixes for visibility:
 [ralph:beads-789] Spawned in .worktrees/ralph-beads-789/
 [orchestrator] Monitoring...
 [ralph:beads-123] Iteration 5/50
-[ralph:beads-456] COMPLETE - promise detected
+[ralph:beads-456] WORKER_COMPLETE - promise detected
 [orchestrator] Verifying beads-456...
 [orchestrator] Verification passed
 [orchestrator] Merging beads-456 to main...
@@ -440,10 +500,10 @@ On restart, run `recover` command to identify stale state and resume.
 
 ## Critical Rules
 
-1. **Never skip verification** - Always verify before AND after merge
-2. **Verify-then-merge** - Never merge unverified work to main
+1. **Rebase then verify** - Verify what you will merge (post-rebase)
+2. **Serialize merges** - Use merge lock for rebase → verify → merge
 3. **Atomic spawning** - Use locking to prevent spawn races
 4. **Clean up always** - Remove worktrees after merge (success or failure)
-5. **Preserve audit trail** - Log all completions to completions.jsonl
-6. **Fail gracefully** - On error, create fix-bead and continue
+5. **Preserve audit trail** - Log completions to completions.jsonl
+6. **Fail gracefully** - On error, create fix-bead or respawn with spawn_mode=restart
 7. **Stream progress** - Always prefix output for visibility

@@ -48,8 +48,8 @@ Workers:
   - ralph-db-002: in_progress (iteration 1/50)
 
 Recent:
-  - ralph-api-003: COMPLETED (4 iterations)
-  - ralph-ui-001: FAILED (blocked: missing dependency)
+  - ralph-api-003: WORKER_COMPLETE (4 iterations)
+  - ralph-ui-001: VERIFIED_FAILED (blocked: missing dependency)
 ```
 
 ### Start Orchestrator (`/ralph start`)
@@ -79,10 +79,9 @@ Execute a specific bead manually:
 
 This:
 1. Claims the bead (`bd update --status=in_progress`)
-2. Creates worktree at `.worktrees/ralph-auth-001/`
-3. Checks out branch `ralph/auth-001`
-4. Spawns ralph-worker agent
-5. Monitors until completion or failure
+2. Writes queue file (required) with base_ref/spawn_mode
+3. Spawns ralph-worker agent (ensure-worktree creates worktree + branch)
+4. Monitors until completion or failure
 
 ### Stop Gracefully (`/ralph stop`)
 
@@ -102,6 +101,8 @@ Resume from existing state and any active worktrees:
 /ralph resume
 ```
 
+Resume should write queue files with `spawn_mode=resume` (or `repair` if the worktree is missing).
+
 ### Recover (`/ralph recover <bead-id>`)
 
 Recover a specific bead from a failed or stuck state:
@@ -109,6 +110,8 @@ Recover a specific bead from a failed or stuck state:
 ```bash
 /ralph recover beads-123
 ```
+
+Recover should respawn with `spawn_mode=restart` to reset the loop state.
 
 ### Unlock (`/ralph unlock [--force]`)
 
@@ -150,8 +153,11 @@ Worker Agents:
   ralph-worker.md: present
   verification-ralph.md: present
 
-Hooks:
+Hooks (installed):
   ralph-stop-hook.sh: executable
+  ensure-worktree.sh: executable
+  ralph-doc-only-check.sh: executable
+  settings.json: present
 
 Overall: HEALTHY
 ```
@@ -201,8 +207,10 @@ for BEAD_ID in $READY_BEADS; do
 {
   "worktree_path": ".worktrees/ralph-${BEAD_ID}",
   "worktree_policy": "required",
+  "base_ref": "main",
   "max_iterations": 50,
-  "completion_promise": "BEAD COMPLETE"
+  "completion_promise": "BEAD COMPLETE",
+  "spawn_mode": "new"
 }
 EOF
 
@@ -211,9 +219,15 @@ EOF
 done
 ```
 
+Queue file fields (required):
+- `base_ref`: branch to rebase onto and audit (`main` by default)
+- `spawn_mode`: `new` | `resume` | `restart` | `repair`
+
 ### Running a Single Bead
 
 When `/ralph <bead-id>` is invoked:
+
+Write the queue file first (required by ensure-worktree), then spawn the worker:
 
 ```
 Task(
@@ -298,8 +312,11 @@ echo "Worker Agents:"
 [ -f ".claude/agents/verification-ralph.md" ] && echo "  verification-ralph.md: present" || echo "  verification-ralph.md: MISSING"
 
 echo ""
-echo "Hooks:"
-[ -x ".claude/hooks/ralph-stop-hook.sh" ] && echo "  ralph-stop-hook.sh: executable" || echo "  ralph-stop-hook.sh: MISSING or not executable"
+echo "Hooks (installed):"
+[ -x "$HOME/.claude/hooks/ralph-stop-hook.sh" ] && echo "  ralph-stop-hook.sh: executable" || echo "  ralph-stop-hook.sh: MISSING or not executable"
+[ -x "$HOME/.claude/hooks/ensure-worktree.sh" ] && echo "  ensure-worktree.sh: executable" || echo "  ensure-worktree.sh: MISSING or not executable"
+[ -x "$HOME/.claude/hooks/ralph-doc-only-check.sh" ] && echo "  ralph-doc-only-check.sh: executable" || echo "  ralph-doc-only-check.sh: MISSING or not executable"
+[ -f "$HOME/.claude/settings.json" ] && echo "  settings.json: present" || echo "  settings.json: MISSING"
 
 echo ""
 echo "Overall: HEALTHY"
@@ -331,10 +348,11 @@ bd list --status=completed
 
 ## Worktree Lifecycle
 
-1. **Creation**: `/ralph start` or `/ralph <bead-id>` creates worktree
+1. **Creation**: `/ralph start` or `/ralph <bead-id>` writes queue + spawns worktree
 2. **Execution**: Ralph worker operates in isolated worktree
-3. **Completion**: Worker outputs promise, orchestrator merges branch
-4. **Cleanup**: `/ralph gc` removes worktree after successful merge
+3. **Rebase + Verify**: Orchestrator rebases onto main and runs verification
+4. **Completion**: Verified branch merges (ff-only) and bead closes
+5. **Cleanup**: `/ralph gc` removes worktree after successful merge
 
 ## See Also
 

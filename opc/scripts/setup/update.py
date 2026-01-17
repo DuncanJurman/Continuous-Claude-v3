@@ -159,6 +159,17 @@ def compare_directories(source: Path, installed: Path, extensions: set[str] | No
     return result
 
 
+def compare_file(source: Path, installed: Path) -> str | None:
+    """Compare a single file and return 'new', 'updated', or None."""
+    if not source.exists():
+        return None
+    if not installed.exists():
+        return "new"
+    if file_hash(source) != file_hash(installed):
+        return "updated"
+    return None
+
+
 def copy_file(src: Path, dst: Path) -> bool:
     """Copy file, creating parent directories as needed."""
     try:
@@ -241,10 +252,12 @@ def run_update() -> None:
     # Define what to check: (source_subdir, installed_path, extensions)
     checks = [
         ("hooks/src", claude_dir / "hooks" / "src", {".ts"}),
+        ("hooks", claude_dir / "hooks", {".sh", ".json"}),
         ("skills", claude_dir / "skills", {".md"}),
         ("rules", claude_dir / "rules", {".md"}),
         ("agents", claude_dir / "agents", {".md", ".yaml", ".yml"}),
         ("commands", claude_dir / "commands", {".md"}),
+        ("scripts", claude_dir / "scripts", {".sh", ".py"}),
     ]
 
     all_new = []
@@ -275,6 +288,19 @@ def run_update() -> None:
             console.print(f"  {subdir}: {', '.join(status)}")
         else:
             console.print(f"  {subdir}: [dim]not found in source[/dim]")
+
+    # Check settings.json explicitly (single file at root of .claude)
+    settings_src = integration_source / "settings.json"
+    settings_dst = claude_dir / "settings.json"
+    settings_status = compare_file(settings_src, settings_dst)
+    if settings_status == "new":
+        all_new.append(("settings.json", "settings.json", integration_source, claude_dir))
+        console.print("  settings.json: 1 new")
+    elif settings_status == "updated":
+        all_updated.append(("settings.json", "settings.json", integration_source, claude_dir))
+        console.print("  settings.json: 1 updated")
+    elif settings_src.exists():
+        console.print("  settings.json: 1 unchanged")
 
     # Step 3: Apply updates
     console.print("\n[bold]Step 3/4: Applying updates...[/bold]")
