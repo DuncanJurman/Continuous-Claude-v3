@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "codex": {
+      "type": "stdio",
+      "command": "codex",
+      "args": ["-m", "gpt-5.2-codex", "-c", "model_reasoning_effort=\"high\"", "mcp-server"]
+    },
+    "playwright": {
+      "type": "stdio",
+      "command": "npx",
+      "args": ["-y", "@playwright/mcp@latest"]
+    }
+  }
+}

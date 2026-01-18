@@ -1,0 +1,7 @@
+{
+  "name": "god-ralph",
+  "description": "Parallel bead execution with Ralph workers delegated to Codex (MCP).",
+  "version": "0.1.0",
+  "author": { "name": "Your Team" },
+  "keywords": ["beads", "ralph", "codex", "mcp", "worktrees", "automation"]
+}
