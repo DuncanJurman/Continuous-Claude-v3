@@ -53,7 +53,7 @@ cleanup_single() {
 
         # Remove worktree
         echo "[cleanup-worktree] Removing worktree at $worktree_path"
-        git worktree remove "$worktree_path" --force 2>/dev/null || rm -rf "$worktree_path"
+        git -C "$PROJECT_ROOT" worktree remove "$worktree_path" --force 2>/dev/null || rm -rf "$worktree_path"
     else
         echo "[cleanup-worktree] Worktree not found at $worktree_path (may already be cleaned)"
     fi
@@ -61,7 +61,7 @@ cleanup_single() {
     # Optionally remove branch
     if [[ "$keep_branch" != "--keep-branch" ]]; then
         echo "[cleanup-worktree] Removing branch $branch_name"
-        git branch -D "$branch_name" 2>/dev/null || true
+        git -C "$PROJECT_ROOT" branch -D "$branch_name" 2>/dev/null || true
     else
         echo "[cleanup-worktree] Keeping branch $branch_name"
     fi
@@ -193,11 +193,19 @@ cleanup_all() {
             fi
 
             case "$status" in
-                merged|completed|failed)
+                merged|failed)
                     echo ""
                     echo "Cleaning $bead_id (status: $status)..."
                     cleanup_single "$bead_id"
                     cleaned=$((cleaned + 1))
+                    ;;
+                verified_passed)
+                    echo "Skipping $bead_id (status: verified_passed; merge pending)"
+                    skipped=$((skipped + 1))
+                    ;;
+                verified_failed)
+                    echo "Skipping $bead_id (status: verified_failed; needs requeue)"
+                    skipped=$((skipped + 1))
                     ;;
                 *)
                     echo "Skipping $bead_id (status: $status)"

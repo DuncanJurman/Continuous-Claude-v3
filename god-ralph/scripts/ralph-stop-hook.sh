@@ -142,6 +142,16 @@ MAX_ITERATIONS=$(jq -r '.max_iterations // 10' "$SESSION_FILE")
 COMPLETION_PROMISE=$(jq -r '.completion_promise // empty' "$SESSION_FILE")
 STATUS=$(jq -r '.status // "in_progress"' "$SESSION_FILE")
 BASE_SHA=$(jq -r '.base_sha // empty' "$SESSION_FILE")
+WORKTREE_PATH=$(jq -r '.worktree_path // empty' "$SESSION_FILE")
+
+WORKTREE_CHECK_PATH="$WORKTREE_ROOT"
+if [ -n "$WORKTREE_PATH" ]; then
+    if [[ "$WORKTREE_PATH" = /* ]]; then
+        WORKTREE_CHECK_PATH="$WORKTREE_PATH"
+    elif [ -n "$PROJECT_ROOT" ]; then
+        WORKTREE_CHECK_PATH="$PROJECT_ROOT/$WORKTREE_PATH"
+    fi
+fi
 
 # Validate iteration and max_iterations are numeric
 if ! [[ "$ITERATION" =~ ^[0-9]+$ ]] || ! [[ "$MAX_ITERATIONS" =~ ^[0-9]+$ ]]; then
@@ -154,7 +164,7 @@ fi
 
 # === ALLOW EXIT FOR TERMINAL STATES ONLY ===
 case "$STATUS" in
-    merged|verified_passed|verified_failed|worker_complete|failed)
+    merged|verified_passed|worker_complete|failed)
         exit 0
         ;;
 esac
@@ -201,11 +211,15 @@ if [ -n "$COMPLETION_PROMISE" ] && [ -n "$TRANSCRIPT_PATH" ] && [ -f "$TRANSCRIP
 fi
 
 if [ "$PROMISE_FOUND" = "true" ]; then
-    if [ -z "$WORKTREE_ROOT" ]; then
+    if [ -z "$WORKTREE_CHECK_PATH" ]; then
         increment_iteration_and_block "Worktree root not found. Run from the bead worktree and retry."
     fi
 
-    if [ -n "$(git -C "$WORKTREE_ROOT" status --porcelain 2>/dev/null || echo "")" ]; then
+    if [ ! -d "$WORKTREE_CHECK_PATH" ]; then
+        increment_iteration_and_block "Worktree path does not exist. Verify worktree setup and retry."
+    fi
+
+    if [ -n "$(git -C "$WORKTREE_CHECK_PATH" status --porcelain 2>/dev/null || echo "")" ]; then
         increment_iteration_and_block "Worktree has uncommitted changes. Commit or revert before completing the bead."
     fi
 
@@ -213,7 +227,7 @@ if [ "$PROMISE_FOUND" = "true" ]; then
         increment_iteration_and_block "Missing base_sha in session. Respawn with spawn_mode=restart or repair session state."
     fi
 
-    COMMIT_COUNT=$(git -C "$WORKTREE_ROOT" rev-list --count "${BASE_SHA}..HEAD" 2>/dev/null || echo 0)
+    COMMIT_COUNT=$(git -C "$WORKTREE_CHECK_PATH" rev-list --count "${BASE_SHA}..HEAD" 2>/dev/null || echo 0)
     if ! [[ "$COMMIT_COUNT" =~ ^[0-9]+$ ]] || [ "$COMMIT_COUNT" -eq 0 ]; then
         increment_iteration_and_block "No commits found since base_sha. Make at least one commit before completing the bead."
     fi

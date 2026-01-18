@@ -2,6 +2,7 @@
 name: god-ralph-worker
 description: Ralph worker that completes one bead by delegating implementation to Codex via MCP.
 model: opus
+tools: [Bash, Read, Grep, mcp__codex__codex, mcp__codex__codex-reply]
 worktree_policy: required
 hooks:
   Stop:

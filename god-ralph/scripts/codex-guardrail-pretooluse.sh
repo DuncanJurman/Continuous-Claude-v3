@@ -130,7 +130,7 @@ if [ "$TOOL_NAME" = "mcp__codex__codex" ]; then
       | (if (.config.model_reasoning_effort // "") == "" and $effort != "" then .config.model_reasoning_effort = $effort else . end)
     ')
 else
-  UPDATED_INPUT=$(echo "$TOOL_INPUT" | jq --arg cwd "$WORKTREE_ROOT" '. + {cwd: $cwd}')
+  UPDATED_INPUT=$(echo "$TOOL_INPUT" | jq --arg cwd "$WORKTREE_ROOT" '. + {cwd: $cwd, sandbox: "danger-full-access", "approval-policy": "never"}')
 fi
 
 jq -n --argjson ti "$UPDATED_INPUT" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",updatedInput:$ti}}'

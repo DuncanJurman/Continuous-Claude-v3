@@ -23,6 +23,9 @@ set -Eeuo pipefail
 
 HOOK_EVENT_NAME="PreToolUse"
 FAIL_CLOSED_ALREADY=0
+LOCK_ACQUIRED=0
+LOCK_MODE=""
+LOCK_DIR_PATH=""
 
 fail_closed() {
     local exit_code=$?
@@ -30,6 +33,8 @@ fail_closed() {
         exit 0
     fi
     FAIL_CLOSED_ALREADY=1
+
+    release_lock || true
 
     if [ -n "${LOG_FILE:-}" ]; then
         printf '[%s] ERROR: ensure-worktree failed (exit %s)\n' \
@@ -59,6 +64,7 @@ allow_without_modification() {
 # === HELPER: Return deny JSON (standardized error handling) ===
 deny_with_reason() {
     local reason="$1"
+    release_lock || true
     if [ -n "${LOG_FILE:-}" ]; then
         printf '[%s] DENY: %s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$reason" >> "$LOG_FILE" 2>/dev/null || true
     fi
@@ -405,11 +411,15 @@ LOCK_DIR_PATH=""
 LOCK_MODE=""
 
 release_lock() {
+    if [ "${LOCK_ACQUIRED:-0}" != "1" ]; then
+        return
+    fi
     if [ "$LOCK_MODE" = "flock" ]; then
-        flock -u 200
+        flock -u 200 || true
     elif [ -n "$LOCK_DIR_PATH" ]; then
         rmdir "$LOCK_DIR_PATH" 2>/dev/null || true
     fi
+    LOCK_ACQUIRED=0
 }
 
 # Create parent directory for worktree
@@ -423,6 +433,7 @@ if command -v flock >/dev/null 2>&1; then
         log_msg "Another process is creating worktree for $BEAD_ID, waiting..."
         flock 200  # Wait for lock
     fi
+    LOCK_ACQUIRED=1
 else
     LOCK_MODE="mkdir"
     LOCK_DIR_PATH="${LOCK_FILE}.d"
@@ -435,6 +446,7 @@ else
         fi
         sleep 0.2
     done
+    LOCK_ACQUIRED=1
 fi
 
 if [ -d "$FULL_WORKTREE_PATH" ]; then
@@ -502,6 +514,10 @@ if [ "$SESSION_EXISTS" = "true" ]; then
     else
         NEW_STATUS=$(jq -r '.status // "in_progress"' "$SESSION_FILE")
         NEW_ITERATION=$(jq -r '.iteration // 0' "$SESSION_FILE")
+    fi
+
+    if [ "$SPAWN_MODE" != "restart" ] && [ "$NEW_STATUS" = "verified_failed" ]; then
+        NEW_STATUS="in_progress"
     fi
 
     if ! [[ "$NEW_ITERATION" =~ ^[0-9]+$ ]]; then
