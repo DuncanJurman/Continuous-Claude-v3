@@ -107,6 +107,10 @@ if [ -z "$WORKTREE_ROOT" ]; then
   exit 0
 fi
 
+if [ ! -f "$WORKTREE_ROOT/.claude/state/god-ralph/current-bead" ]; then
+  exit 0
+fi
+
 UPDATED_INPUT=""
 if [ "$TOOL_NAME" = "mcp__codex__codex" ]; then
   CODEX_MODEL=""

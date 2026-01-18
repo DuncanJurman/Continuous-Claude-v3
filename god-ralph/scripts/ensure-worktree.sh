@@ -232,8 +232,7 @@ fi
 
 # Policy "required" or "optional" - proceed with worktree creation
 if [ -z "$WORKTREE_PATH" ]; then
-    # Default worktree path if not specified
-    WORKTREE_PATH=".worktrees/ralph-$BEAD_ID"
+    deny_with_reason "Missing worktree_path for bead $BEAD_ID. Queue file must include worktree_path when worktree_policy is '$WORKTREE_POLICY'."
 fi
 
 # === SESSION LOOKUP (BEFORE WORKTREE CREATION) ===

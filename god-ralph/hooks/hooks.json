@@ -3,6 +3,16 @@
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PLUGIN_ROOT}/scripts/bash-guardrail-pretooluse.sh",
+            "timeout": 20
+          }
+        ]
+      },
+      {
         "matcher": "Task",
         "hooks": [
           {
