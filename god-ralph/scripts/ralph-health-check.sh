@@ -70,8 +70,16 @@ fi
 echo ""
 
 HAS_UI=false
-if rg -n '"type"\s*:\s*"ui"|type:\s*ui' "$QUEUE_DIR" "$SESSIONS_DIR" 2>/dev/null | head -1 >/dev/null; then
-  HAS_UI=true
+if command -v rg >/dev/null 2>&1; then
+  if rg -q '"type"\\s*:\\s*"ui"|type:\\s*ui' "$QUEUE_DIR" "$SESSIONS_DIR" 2>/dev/null; then
+    HAS_UI=true
+  fi
+elif command -v grep >/dev/null 2>&1; then
+  if grep -R -q -E '"type"[[:space:]]*:[[:space:]]*"ui"|type:[[:space:]]*ui' "$QUEUE_DIR" "$SESSIONS_DIR" 2>/dev/null; then
+    HAS_UI=true
+  fi
+else
+  echo "[WARN] rg/grep not available; skipping UI criteria detection"
 fi
 
 if [ "$HAS_UI" = "true" ]; then
@@ -83,8 +91,16 @@ if [ "$HAS_UI" = "true" ]; then
 fi
 
 HAS_VERCEL_TARGET=false
-if rg -n 'vercel_preview|vercel_production' "$QUEUE_DIR" "$SESSIONS_DIR" 2>/dev/null | head -1 >/dev/null; then
-  HAS_VERCEL_TARGET=true
+if command -v rg >/dev/null 2>&1; then
+  if rg -q 'vercel_preview|vercel_production' "$QUEUE_DIR" "$SESSIONS_DIR" 2>/dev/null; then
+    HAS_VERCEL_TARGET=true
+  fi
+elif command -v grep >/dev/null 2>&1; then
+  if grep -R -q -E 'vercel_preview|vercel_production' "$QUEUE_DIR" "$SESSIONS_DIR" 2>/dev/null; then
+    HAS_VERCEL_TARGET=true
+  fi
+else
+  echo "[WARN] rg/grep not available; skipping Vercel target detection"
 fi
 
 if [ "$HAS_VERCEL_TARGET" = "true" ]; then

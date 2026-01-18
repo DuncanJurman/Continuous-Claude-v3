@@ -287,9 +287,6 @@ if [ "$SESSION_EXISTS" = "true" ] && [ "$SPAWN_MODE" != "restart" ]; then
         failed)
             deny_with_reason "Session for $BEAD_ID is failed. Respawn with spawn_mode=restart to reset the loop or create a fix-bead."
             ;;
-        verified_failed)
-            deny_with_reason "Session for $BEAD_ID is verified_failed. Respawn with spawn_mode=restart to continue."
-            ;;
         worker_complete|verified_passed|merged)
             deny_with_reason "Session for $BEAD_ID is $SESSION_STATUS. Use spawn_mode=restart to reopen or create a fix-bead."
             ;;

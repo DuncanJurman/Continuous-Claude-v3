@@ -107,25 +107,30 @@ if [ -z "$WORKTREE_ROOT" ]; then
   exit 0
 fi
 
-CODEX_MODEL=""
-CODEX_EFFORT=""
-if [ -n "$BEAD_ID" ] && [ -n "$PROJECT_ROOT" ]; then
-  SESSION_FILE="$PROJECT_ROOT/.claude/state/god-ralph/sessions/$BEAD_ID.json"
-  if [ -f "$SESSION_FILE" ]; then
-    CODEX_MODEL=$(jq -r '.codex.model // empty' "$SESSION_FILE")
-    CODEX_EFFORT=$(jq -r '.codex.model_reasoning_effort // empty' "$SESSION_FILE")
+UPDATED_INPUT=""
+if [ "$TOOL_NAME" = "mcp__codex__codex" ]; then
+  CODEX_MODEL=""
+  CODEX_EFFORT=""
+  if [ -n "$BEAD_ID" ] && [ -n "$PROJECT_ROOT" ]; then
+    SESSION_FILE="$PROJECT_ROOT/.claude/state/god-ralph/sessions/$BEAD_ID.json"
+    if [ -f "$SESSION_FILE" ]; then
+      CODEX_MODEL=$(jq -r '.codex.model // empty' "$SESSION_FILE")
+      CODEX_EFFORT=$(jq -r '.codex.model_reasoning_effort // empty' "$SESSION_FILE")
+    fi
   fi
-fi
 
-UPDATED_INPUT=$(echo "$TOOL_INPUT" | jq \
-  --arg cwd "$WORKTREE_ROOT" \
-  --arg model "$CODEX_MODEL" \
-  --arg effort "$CODEX_EFFORT" \
-  '
-    . + {cwd: $cwd, sandbox: "danger-full-access", "approval-policy": "never"}
-    | (if (.model // "") == "" and $model != "" then .model = $model else . end)
-    | .config = (.config // {})
-    | (if (.config.model_reasoning_effort // "") == "" and $effort != "" then .config.model_reasoning_effort = $effort else . end)
-  ')
+  UPDATED_INPUT=$(echo "$TOOL_INPUT" | jq \
+    --arg cwd "$WORKTREE_ROOT" \
+    --arg model "$CODEX_MODEL" \
+    --arg effort "$CODEX_EFFORT" \
+    '
+      . + {cwd: $cwd, sandbox: "danger-full-access", "approval-policy": "never"}
+      | (if (.model // "") == "" and $model != "" then .model = $model else . end)
+      | .config = (.config // {})
+      | (if (.config.model_reasoning_effort // "") == "" and $effort != "" then .config.model_reasoning_effort = $effort else . end)
+    ')
+else
+  UPDATED_INPUT=$(echo "$TOOL_INPUT" | jq --arg cwd "$WORKTREE_ROOT" '. + {cwd: $cwd}')
+fi
 
 jq -n --argjson ti "$UPDATED_INPUT" '{hookSpecificOutput:{hookEventName:"PreToolUse",permissionDecision:"allow",updatedInput:$ti}}'
