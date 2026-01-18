@@ -33,6 +33,51 @@ Main-thread orchestrator for parallel bead execution using god-ralph workers and
 2. Write queue file: `.claude/state/god-ralph/queue/<bead_id>.json`
 3. Spawn worker:
 
+### Queue file schema (required)
+
+`ensure-worktree.sh` fails closed if required fields are missing or invalid. The queue file must include `worktree_policy` and `spawn_mode` with valid values.
+
+Required fields:
+- `worktree_path` (string; relative or absolute)
+- `worktree_policy` (string; one of `required|optional|none`)
+- `base_ref` (string; default `main`)
+- `spawn_mode` (string; `new|resume|restart|repair`)
+- `max_iterations` (number)
+- `completion_promise` (string)
+
+Recommended fields:
+- `codex.model` (string)
+- `codex.model_reasoning_effort` (string)
+- `bead_spec` (object; snapshot of bead spec used for this run)
+
+Example:
+```json
+{
+  "worktree_path": ".worktrees/ralph-beads-123",
+  "worktree_policy": "required",
+  "base_ref": "main",
+  "spawn_mode": "new",
+  "max_iterations": 50,
+  "completion_promise": "BEAD COMPLETE",
+  "codex": {
+    "model": "gpt-5.2-codex",
+    "model_reasoning_effort": "high"
+  },
+  "bead_spec": {
+    "bead_id": "beads-123",
+    "title": "Add settings page",
+    "description": "Implement settings page…",
+    "ralph_spec": {
+      "impact_paths": ["src/settings/**"],
+      "acceptance_criteria": [
+        { "type": "test", "severity": "required", "command": "npm test" },
+        { "type": "ui", "severity": "required", "instructions": "Verify settings save persists after reload." }
+      ]
+    }
+  }
+}
+```
+
 ```
 Task(
   subagent_type="god-ralph-worker",
